@@ -172,3 +172,13 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# VSCode
+.vscode/
+
+# Cursor
+.cursorrules
+.cursorignore
+
+# PyCharm
+.idea/
