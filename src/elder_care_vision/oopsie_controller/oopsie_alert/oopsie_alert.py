@@ -47,19 +47,21 @@ class FallDetector:
             static_image_mode=False,      # Process video frames
             model_complexity=1,           # Use medium complexity for better speed
             enable_segmentation=False,    # Disable segmentation for speed
-            min_detection_confidence=0.5, # Minimum confidence for detection
-            min_tracking_confidence=0.5   # Minimum confidence for tracking
+            min_detection_confidence=0.7, # Increased from 0.5 to 0.7 for better accuracy
+            min_tracking_confidence=0.7   # Increased from 0.5 to 0.7 for better tracking
         )
         
-        # Fall detection parameters
-        self.fall_threshold = 0.85       # Threshold for vertical position
-        self.min_confidence = 0.5        # Minimum confidence for keypoints
-        self.min_keypoints_visible = 5   # Minimum visible keypoints
+        # Fall detection parameters - adjusted for less sensitivity
+        self.fall_threshold = 0.95        # Increased from 0.85 to 0.95 (must be more horizontal)
+        self.min_confidence = 0.7         # Increased from 0.5 to 0.7 for better accuracy
+        self.min_keypoints_visible = 8    # Increased from 5 to 8 for more reliable detection
+        self.min_duration = 5             # Number of consecutive frames to confirm fall
         
         # Performance optimization parameters
         self.frame_skip = 2              # Process every nth frame
         self.target_width = 640          # Target width for resizing
         self.frame_counter = 0           # Counter for frame skipping
+        self.fall_frames = 0             # Counter for consecutive fall frames
         
     def resize_frame(self, frame):
         """Resize frame while maintaining aspect ratio for better performance.
@@ -138,7 +140,21 @@ class FallDetector:
         hip_width = abs(left_hip.x - right_hip.x)
         width_ratio = min(shoulder_width, hip_width) / max(shoulder_width, hip_width)
         
-        return vertical_distance < self.fall_threshold and width_ratio > 0.7
+        # Check if person is actually lying down (not just bending)
+        is_horizontal = vertical_distance < self.fall_threshold
+        is_aligned = width_ratio > 0.7
+        
+        # Check for sudden movement (optional)
+        # sudden_movement = self._check_sudden_movement(landmarks)
+        
+        # Update fall frame counter
+        if is_horizontal and is_aligned:
+            self.fall_frames += 1
+        else:
+            self.fall_frames = 0
+            
+        # Only confirm fall after minimum duration
+        return self.fall_frames >= self.min_duration
         
     def process_frame(self, frame):
         """Process a single frame for fall detection.

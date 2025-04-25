@@ -10,6 +10,7 @@ import numpy as np
 from pathlib import Path
 from typing import Optional, Tuple
 import logging
+import time
 
 from .oopsie_alert.oopsie_alert import FallDetector
 from .oopsie_nanny.oopsie_nanny import ImageRecognizer
@@ -34,6 +35,9 @@ class OopsieController:
         current_warning_frames: Counter for current warning display
         fall_confirmed: Whether the current detection has been confirmed
         is_processing_video: Whether the controller is processing a video
+        last_llm_request_time: Timestamp of the last LLM request
+        llm_cooldown: Minimum seconds between LLM requests
+        last_pose_data: Store of the last processed pose data
     """
     
     def __init__(self):
@@ -44,6 +48,9 @@ class OopsieController:
         self.current_warning_frames = 0
         self.fall_confirmed = False
         self.is_processing_video = False
+        self.last_llm_request_time = 0
+        self.llm_cooldown = 5  # 5 seconds cooldown between LLM requests
+        self.last_pose_data = None
         logger.info("OopsieController initialized and ready for fall detection")
         
     def draw_poi(self, frame: np.ndarray, landmarks) -> np.ndarray:
@@ -168,6 +175,53 @@ class OopsieController:
         
         return frame
         
+    def _pose_changed_significantly(self, current_pose) -> bool:
+        """Check if the current pose has changed significantly from the last pose.
+        
+        Args:
+            current_pose: Current pose landmarks
+            
+        Returns:
+            True if pose has changed significantly, False otherwise
+        """
+        if self.last_pose_data is None:
+            self.last_pose_data = current_pose
+            return True
+            
+        # Get key points for comparison
+        current_points = {
+            'shoulder_y': (current_pose.landmark[self.alert.mp_pose.PoseLandmark.LEFT_SHOULDER].y + 
+                          current_pose.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_SHOULDER].y) * 0.5,
+            'hip_y': (current_pose.landmark[self.alert.mp_pose.PoseLandmark.LEFT_HIP].y + 
+                     current_pose.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_HIP].y) * 0.5,
+            'nose_y': current_pose.landmark[self.alert.mp_pose.PoseLandmark.NOSE].y
+        }
+        
+        last_points = {
+            'shoulder_y': (self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.LEFT_SHOULDER].y + 
+                          self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_SHOULDER].y) * 0.5,
+            'hip_y': (self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.LEFT_HIP].y + 
+                     self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_HIP].y) * 0.5,
+            'nose_y': self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.NOSE].y
+        }
+        
+        # Check if any key point has moved significantly (more than 15% of frame height)
+        threshold = 0.15  # Increased from 0.1 to 0.15 for less sensitivity
+        shoulder_diff = abs(current_points['shoulder_y'] - last_points['shoulder_y'])
+        hip_diff = abs(current_points['hip_y'] - last_points['hip_y'])
+        nose_diff = abs(current_points['nose_y'] - last_points['nose_y'])
+        
+        # Only consider it a significant change if multiple points have moved
+        significant_movement = (shoulder_diff > threshold and hip_diff > threshold) or \
+                             (shoulder_diff > threshold and nose_diff > threshold) or \
+                             (hip_diff > threshold and nose_diff > threshold)
+        
+        if significant_movement:
+            self.last_pose_data = current_pose
+            return True
+            
+        return False
+        
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, bool]:
         """Process a single frame for fall detection and verification.
         
@@ -193,45 +247,70 @@ class OopsieController:
         if results.pose_landmarks:
             potential_fall = self.alert.detect_fall(results.pose_landmarks)
             
-            # Additional head-based fall detection
+            # Additional head-based fall detection with much higher thresholds
             if not potential_fall:
                 # Get head landmarks
                 nose = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.NOSE]
                 left_ear = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_EAR]
                 right_ear = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_EAR]
                 
-                # Calculate head orientation
+                # Calculate head orientation with much higher threshold
                 head_center_y = (left_ear.y + right_ear.y) * 0.5
                 head_to_nose_ratio = abs(nose.y - head_center_y) / abs(left_ear.x - right_ear.x)
                 
-                # Check if head is tilted or too low
-                if head_to_nose_ratio > 0.5 or head_center_y > self.alert.fall_threshold:
+                # Get shoulder position for relative head position check
+                left_shoulder = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_SHOULDER]
+                right_shoulder = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_SHOULDER]
+                shoulder_center_y = (left_shoulder.y + right_shoulder.y) * 0.5
+                
+                # Calculate relative head position to shoulders
+                head_to_shoulder_ratio = abs(head_center_y - shoulder_center_y) / abs(left_shoulder.x - right_shoulder.x)
+                
+                # Check if head is significantly tilted or too low
+                # Only trigger if both head tilt AND position are abnormal
+                is_head_tilted = head_to_nose_ratio > 1.2  # Increased from 0.7 to 1.2
+                is_head_low = head_center_y > self.alert.fall_threshold + 0.2  # Increased from 0.1 to 0.2
+                is_head_relative_low = head_to_shoulder_ratio > 1.5  # New check for head position relative to shoulders
+                
+                # Only consider it a potential fall if multiple head conditions are met
+                if (is_head_tilted and is_head_low) or (is_head_tilted and is_head_relative_low):
                     potential_fall = True
                     logger.info("Potential fall detected based on head position")
+                else:
+                    logger.debug(f"Head position normal: tilt={head_to_nose_ratio:.2f}, low={is_head_low}, relative={head_to_shoulder_ratio:.2f}")
             
             if potential_fall and not self.fall_confirmed:
-                logger.info("Potential fall detected! Waiting for LLM confirmation...")
-                # Save frame for LLM analysis
-                temp_path = "temp_fall_frame.jpg"
-                cv2.imwrite(temp_path, frame)
-                
-                try:
-                    # Get LLM analysis
-                    analysis = self.nanny.analyze_image(temp_path)
-                    logger.info(f"LLM Analysis: {analysis}")
+                # Check cooldown and pose change
+                current_time = time.time()
+                if (current_time - self.last_llm_request_time >= self.llm_cooldown and 
+                    self._pose_changed_significantly(results.pose_landmarks)):
                     
-                    # Check if LLM confirms the fall
-                    if "CONFIRMED FALL" in analysis.upper():
-                        logger.info("Fall confirmed by LLM analysis")
-                        self.fall_confirmed = True
-                        self.current_warning_frames = self.warning_frames
-                    else:
-                        logger.info("Fall not confirmed by LLM analysis")
-                except Exception as e:
-                    logger.error(f"Error during LLM analysis: {str(e)}")
-                finally:
-                    # Clean up temp file
-                    Path(temp_path).unlink(missing_ok=True)
+                    logger.info("Potential fall detected! Waiting for LLM confirmation...")
+                    # Save frame for LLM analysis
+                    temp_path = "temp_fall_frame.jpg"
+                    cv2.imwrite(temp_path, frame)
+                    
+                    try:
+                        # Get LLM analysis
+                        analysis = self.nanny.analyze_image(temp_path)
+                        logger.info(f"LLM Analysis: {analysis}")
+                        
+                        # Check if LLM confirms the fall
+                        if "CONFIRMED FALL" in analysis.upper():
+                            logger.info("Fall confirmed by LLM analysis")
+                            self.fall_confirmed = True
+                            self.current_warning_frames = self.warning_frames
+                        else:
+                            logger.info("Fall not confirmed by LLM analysis")
+                    except Exception as e:
+                        logger.error(f"Error during LLM analysis: {str(e)}")
+                    finally:
+                        # Clean up temp file
+                        Path(temp_path).unlink(missing_ok=True)
+                        # Update last request time
+                        self.last_llm_request_time = current_time
+                else:
+                    logger.debug("Skipping LLM request due to cooldown or unchanged pose")
         
         # Add warning overlay if fall is confirmed
         if self.fall_confirmed and self.current_warning_frames > 0:
