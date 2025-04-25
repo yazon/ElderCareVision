@@ -113,6 +113,12 @@ class ADBPhoneCallManager:
             bool: True if audio played successfully, False otherwise
         """
         try:
+            device_index = None
+            for idx, device in enumerate(sd.query_devices()):
+                if device['name'] and "plantronics" in device['name'].lower():
+                    device_index = idx
+                    break
+
             # Create a file-like object from the audio data
             audio_file = io.BytesIO(audio_data)
 
@@ -120,7 +126,10 @@ class ADBPhoneCallManager:
             data, samplerate = sf.read(audio_file)
 
             # Play the audio using sounddevice
-            sd.play(data, samplerate)
+            if device_index is not None:
+                sd.play(data, samplerate, device=device_index)
+            else:
+                sd.play(data, samplerate)
             sd.wait()  # Wait until the audio is finished playing
 
             logger.info("Audio played successfully")
