@@ -1,88 +1,104 @@
-"""Test implementation for the OopsieController system.
+"""Main entry point for the fall detection system."""
 
-This script demonstrates the usage of OopsieController for both image and video processing.
-It provides examples of:
-- Single image fall detection
-- Video stream fall detection
-- Error handling and user feedback
-"""
-
-import os
-import sys
 import argparse
+import logging
+import sys
 from pathlib import Path
 import cv2
+import time
 
-from elder_care_vision.oopsie_controller.oopsie_controller import OopsieController
+from .oopsie_controller import OopsieController
 
-def process_image(controller: OopsieController, image_path: str) -> None:
-    """Process a single image for fall detection.
+def on_algorithm_fall(frame, landmarks, timestamp):
+    """Handle algorithm-detected falls.
     
     Args:
-        controller: The OopsieController instance
-        image_path: Path to the image file
+        frame: The frame where fall was detected
+        landmarks: The pose landmarks
+        timestamp: Time of detection
     """
-    try:
-        print(f"\nProcessing image: {image_path}")
-        processed_frame, fall_detected = controller.process_image(image_path)
-        
-        if fall_detected:
-            print("⚠️  FALL DETECTED! Emergency response may be required.")
-        else:
-            print("✅ No fall detected - person appears safe.")
-            
-        # Save processed image
-        output_path = Path(image_path).with_stem(f"{Path(image_path).stem}_processed")
-        cv2.imwrite(str(output_path), processed_frame)
-        print(f"Processed image saved to: {output_path}")
-        
-    except Exception as e:
-        print(f"Error processing image: {str(e)}")
+    # Save the frame with timestamp
+    timestamp_str = time.strftime("%Y%m%d-%H%M%S", time.localtime(timestamp))
+    output_path = f"algorithm_fall_{timestamp_str}.jpg"
+    cv2.imwrite(output_path, frame)
+    
+    logging.warning(f"⚠️  Algorithm detected potential fall at {timestamp_str}")
+    logging.info(f"Frame saved to: {output_path}")
+
+def on_confirmed_fall(sequence_path, analysis, timestamp):
+    """Handle LLM-confirmed falls.
+    
+    Args:
+        sequence_path: Path to the frame sequence image
+        analysis: The LLM analysis text
+        timestamp: Time of confirmation
+    """
+    timestamp_str = time.strftime("%Y%m%d-%H%M%S", time.localtime(timestamp))
+    
+    # Save the sequence with timestamp
+    output_path = f"confirmed_fall_{timestamp_str}.jpg"
+    cv2.imwrite(output_path, cv2.imread(sequence_path))
+    
+    # Save the analysis
+    analysis_path = f"fall_analysis_{timestamp_str}.txt"
+    with open(analysis_path, "w") as f:
+        f.write(analysis)
+    
+    logging.error(f"🚨 LLM CONFIRMED FALL at {timestamp_str}")
+    logging.info(f"Sequence saved to: {output_path}")
+    logging.info(f"Analysis saved to: {analysis_path}")
 
 def process_video(controller: OopsieController, video_path: str) -> None:
     """Process a video file for fall detection.
     
     Args:
         controller: The OopsieController instance
-        video_path: Path to the video file
+        video_path: Path to the video file to process
     """
+    print(f"\nProcessing video: {video_path}")
+    print("Press 'q' to quit video processing")
+    
     try:
-        print(f"\nProcessing video: {video_path}")
-        print("Press 'q' to quit video processing")
         controller.process_video(video_path)
-        print("Video processing completed")
-        
     except Exception as e:
         print(f"Error processing video: {str(e)}")
 
-def main():
-    """Main function to test OopsieController implementation."""
-    parser = argparse.ArgumentParser(description="Test OopsieController fall detection system")
-    parser.add_argument("--image", help="Path to image file for testing")
-    parser.add_argument("--video", help="Path to video file for testing")
+def main() -> None:
+    """Main entry point for the fall detection system."""
+    parser = argparse.ArgumentParser(description="Fall detection system")
+    parser.add_argument(
+        "--video",
+        type=str,
+        help="Path to video file to process"
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging"
+    )
+    
     args = parser.parse_args()
     
-    if not args.image and not args.video:
-        print("Error: Please provide either --image or --video argument")
-        parser.print_help()
-        sys.exit(1)
-        
-    # Initialize controller
+    # Configure logging
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(levelname)s - %(message)s"
+    )
+    
+    # Create controller
     controller = OopsieController()
     
-    # Process image if provided
-    if args.image:
-        if not os.path.exists(args.image):
-            print(f"Error: Image file not found: {args.image}")
-            sys.exit(1)
-        process_image(controller, args.image)
-        
+    # Add fall detection subscribers
+    controller.add_algorithm_fall_subscriber(on_algorithm_fall)
+    controller.add_confirmed_fall_subscriber(on_confirmed_fall)
+    
     # Process video if provided
     if args.video:
-        if not os.path.exists(args.video):
-            print(f"Error: Video file not found: {args.video}")
-            sys.exit(1)
         process_video(controller, args.video)
+    else:
+        parser.print_help()
+        sys.exit(1)
 
 if __name__ == "__main__":
     main() 

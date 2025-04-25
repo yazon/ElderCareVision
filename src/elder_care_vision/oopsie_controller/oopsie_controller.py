@@ -121,12 +121,18 @@ class OopsieController:
         thread_pool: ThreadPoolExecutor for analysis tasks
         is_analyzing: Boolean to track analysis status
         queue_status: Dictionary to store queue status
+        algorithm_fall_subscribers: List of subscribers for algorithm-detected falls
+        confirmed_fall_subscribers: List of subscribers for LLM-confirmed falls
     """
     
     def __init__(self):
         """Initialize the OopsieController with its components."""
         self.alert = FallDetector()
         self.nanny = ImageRecognizer()
+        
+        # Initialize subscribers
+        self.algorithm_fall_subscribers = []
+        self.confirmed_fall_subscribers = []
         
         # Initialize frame history
         self.frame_history = []  # Store last 6 frames
@@ -892,6 +898,52 @@ class OopsieController:
         except Exception as e:
             logger.error(f"Error updating queue status: {str(e)}")
 
+    def add_algorithm_fall_subscriber(self, callback: callable) -> None:
+        """Add a subscriber for algorithm-detected falls.
+        
+        Args:
+            callback: Function to call when algorithm detects a fall.
+                     Will be called with (frame, landmarks, timestamp)
+        """
+        self.algorithm_fall_subscribers.append(callback)
+        
+    def add_confirmed_fall_subscriber(self, callback: callable) -> None:
+        """Add a subscriber for LLM-confirmed falls.
+        
+        Args:
+            callback: Function to call when LLM confirms a fall.
+                     Will be called with (frame_sequence_path, analysis_text, timestamp)
+        """
+        self.confirmed_fall_subscribers.append(callback)
+        
+    def _notify_algorithm_fall(self, frame: np.ndarray, landmarks, timestamp: float) -> None:
+        """Notify all algorithm fall subscribers.
+        
+        Args:
+            frame: The frame where fall was detected
+            landmarks: The pose landmarks
+            timestamp: Time of detection
+        """
+        for subscriber in self.algorithm_fall_subscribers:
+            try:
+                subscriber(frame.copy(), landmarks, timestamp)
+            except Exception as e:
+                logger.error(f"Error in algorithm fall subscriber: {str(e)}")
+                
+    def _notify_confirmed_fall(self, sequence_path: str, analysis: str, timestamp: float) -> None:
+        """Notify all confirmed fall subscribers.
+        
+        Args:
+            sequence_path: Path to the frame sequence image
+            analysis: The LLM analysis text
+            timestamp: Time of confirmation
+        """
+        for subscriber in self.confirmed_fall_subscribers:
+            try:
+                subscriber(sequence_path, analysis, timestamp)
+            except Exception as e:
+                logger.error(f"Error in confirmed fall subscriber: {str(e)}")
+                
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, bool]:
         """Process a single frame for fall detection."""
         # Reduce frame size by 4x
@@ -924,6 +976,11 @@ class OopsieController:
                 self.frame_queue.put_nowait(frame_data)
                 self.queue_status['total_queued'] += 1
                 logger.debug(f"Frame queued. Queue size: {self.frame_queue.qsize()}")
+                
+                # Check for algorithm-detected fall
+                if self.alert.detect_fall(results.pose_landmarks):
+                    self._notify_algorithm_fall(frame, results.pose_landmarks, current_time)
+                    
             except queue.Full:
                 self.queue_status['dropped_frames'] += 1
                 logger.warning("Frame queue full, dropping frame")
@@ -938,6 +995,14 @@ class OopsieController:
                     logger.info("Fall confirmed by LLM analysis")
                     self.fall_confirmed = True
                     self.current_warning_frames = self.warning_frames
+                    
+                    # Notify confirmed fall subscribers
+                    if hasattr(self, 'last_sequence_path'):
+                        self._notify_confirmed_fall(
+                            self.last_sequence_path,
+                            analysis,
+                            time.time()
+                        )
                 
                 # Check for threshold adjustments
                 if "THRESHOLD_ADJUSTMENT:" in analysis:
@@ -955,16 +1020,6 @@ class OopsieController:
                 self.fall_confirmed = False
 
         return frame, self.fall_confirmed
-
-    def __del__(self):
-        """Cleanup when the controller is destroyed."""
-        # Stop analysis worker
-        if hasattr(self, 'frame_queue'):
-            self.frame_queue.put(None)
-        
-        # Shutdown thread pool
-        if hasattr(self, 'thread_pool'):
-            self.thread_pool.shutdown(wait=True)
 
     def process_video(self, video_path: str) -> None:
         """Process a video file for fall detection.
@@ -1018,23 +1073,15 @@ class OopsieController:
             self.frame_queue.join()
             logger.info("Video processing completed")
             
-    def process_image(self, image_path: str) -> Tuple[np.ndarray, bool]:
-        """Process a single image for fall detection.
+    def __del__(self):
+        """Cleanup when the controller is destroyed."""
+        # Stop analysis worker
+        if hasattr(self, 'frame_queue'):
+            self.frame_queue.put(None)
         
-        Args:
-            image_path: Path to the image file to process
-            
-        Returns:
-            Tuple containing:
-            - The processed image with any warnings
-            - Boolean indicating if a fall was detected
-        """
-        self.is_processing_video = False
-        frame = cv2.imread(image_path)
-        if frame is None:
-            raise ValueError(f"Could not read image: {image_path}")
-            
-        return self.process_frame(frame)
+        # Shutdown thread pool
+        if hasattr(self, 'thread_pool'):
+            self.thread_pool.shutdown(wait=True)
 
     def _process_threshold_adjustment(self, analysis: str) -> None:
         """Process threshold adjustments from LLM analysis.
