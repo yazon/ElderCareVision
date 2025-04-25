@@ -3,6 +3,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from pathlib import Path
 
 from agents import Runner
 
@@ -10,7 +11,7 @@ from elder_care_vision.core.agents.health_status_inquiry import HealthStatusInqu
 from elder_care_vision.core.agents.person_state_analyzer import PersonStateAnalyzerAgent
 from elder_care_vision.core.tools.emergency_call.emergency_call import emergency_call_tool
 from elder_care_vision.core.tools.fall_camera_detector import fall_camera_detector_tool
-from elder_care_vision.utils.utils import load_config
+from elder_care_vision.utils.utils import load_config, get_static_path
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +46,21 @@ class Coordinator:
         self.config = load_config()
         self.confidence_threshold_1 = self.config["agent"]["person_state_analyzer"]["confidence_threshold_1"]
         self.confidence_threshold_2 = self.config["agent"]["person_state_analyzer"]["confidence_threshold_2"]
+        self.emergency_statuses = (
+            self.config["agent"]["person_state_analyzer"]["health_status_needs_help"],
+            self.config["agent"]["person_state_analyzer"]["health_status_not_ok"],
+        )
         self.context = CoordinatorContext()  # Initialize context
         print(f"Initializing state machine in state: {self.context.current_state.name}")
         self.fall_camera_detector_tool = fall_camera_detector_tool
         self.person_state_analyzer_agent = PersonStateAnalyzerAgent()
         self.health_status_inquiry_agent = HealthStatusInquiryAgent()
         self.emergency_call_tool = emergency_call_tool
-        # TODO: remove this
-        img = open("static/Elderly-Falls.jpg", "rb").read()
+
+        # Use the absolute path to the static data directory
+        static_path = get_static_path()
+        img_path = static_path / "Elderly-Falls.jpg"
+        img = img_path.read_bytes()
         self.context.image_base64 = base64.b64encode(img).decode("utf-8")
 
     @property
@@ -121,7 +129,7 @@ class Coordinator:
         hsa = HealthStatusInquiryAgent()
         self.context.health_status = await hsa.run_agent()
         logger.info(f"Health status: {self.context.health_status}")
-        if self.context.health_status == "needs_help" or self.context.health_status == "not_ok":
+        if self.context.health_status in self.emergency_statuses:
             self.transition_to_state(CoordinatorState.CALLING_EMERGENCY)
         else:
             self.transition_to_state(CoordinatorState.START)
