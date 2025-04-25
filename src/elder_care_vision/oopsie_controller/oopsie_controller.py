@@ -419,6 +419,8 @@ class OopsieController:
             
         except Exception as e:
             logger.error(f"Failed to apply threshold adjustments: {str(e)}")
+            logger.error(f"Adjustments attempted: {json.dumps(adjustments, indent=2)}")
+            logger.error(f"Current thresholds: {json.dumps(self.thresholds, indent=2)}")
             
     def _draw_threshold_history(self, frame: np.ndarray, x_offset: int, y_offset: int) -> None:
         """Draw threshold history on the frame.
@@ -651,12 +653,15 @@ class OopsieController:
                                     # Parse the JSON
                                     adjustments = json.loads(adjustment_text)
                                     
-                                    # Handle fall_threshold at root level
-                                    if "fall_threshold" in adjustments:
-                                        # Move fall_threshold under head_detection
-                                        if "head_detection" not in adjustments:
-                                            adjustments["head_detection"] = {}
-                                        adjustments["head_detection"]["fall_threshold"] = adjustments.pop("fall_threshold")
+                                    # Ensure adjustments are properly categorized
+                                    if "head_detection" not in adjustments:
+                                        # If we have root level thresholds, move them under head_detection
+                                        head_detection_adjustments = {}
+                                        for key in ["tilt_threshold", "position_threshold", "shoulder_ratio_threshold", "hip_ratio_threshold"]:
+                                            if key in adjustments:
+                                                head_detection_adjustments[key] = adjustments.pop(key)
+                                        if head_detection_adjustments:
+                                            adjustments["head_detection"] = head_detection_adjustments
                                     
                                     # Log the parsed adjustments
                                     logger.debug(f"Parsed adjustments: {json.dumps(adjustments, indent=2)}")

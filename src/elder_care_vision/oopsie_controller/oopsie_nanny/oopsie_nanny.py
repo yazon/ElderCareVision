@@ -85,34 +85,33 @@ class ImageRecognizer:
             for metric, values in threshold_values.items():
                 threshold_info += f"- {metric}: Current value {values['current']:.2f} exceeded threshold {values['threshold']:.2f}\n"
         
-        prompt = f"""You are an expert in fall detection and elderly care. Analyze this image for potential falls.
-Consider the following aspects:
-1. Body position and orientation
-2. Head position and tilt
-3. Overall posture and balance
-4. Environmental context
-5. Signs of distress or loss of control
-6. Whether the person appears to be in control of their movement
-7. Whether this appears to be a normal activity or an actual fall
+        prompt = """Analyze this image for potential fall detection. Consider:
+        1. Body position and orientation
+        2. Head position relative to shoulders
+        3. Overall posture and stability
+        4. Environmental context
+        5. Signs of distress or discomfort
 
-{threshold_info}
+        Provide a detailed analysis of at least 100 words, considering all these factors.
+        Conclude with a clear verdict: either 'CONFIRMED FALL' or 'NO FALL'.
 
-Provide a detailed analysis of at least 100 words, considering all the above factors.
-Conclude with a clear verdict of either 'CONFIRMED FALL' or 'NO FALL'.
+        If you believe the thresholds need adjustment, provide a THRESHOLD_ADJUSTMENT section with suggested new values in JSON format.
+        The thresholds should be under the 'head_detection' category and can include:
+        - tilt_threshold (current: 2.0)
+        - position_threshold (current: 0.36)
+        - shoulder_ratio_threshold (current: 2.07)
+        - hip_ratio_threshold (current: 1.35)
 
-If you believe the thresholds that triggered this detection are too sensitive or not sensitive enough,
-provide a THRESHOLD_ADJUSTMENT section with suggested new values in JSON format.
-For example:
-THRESHOLD_ADJUSTMENT:
-{{
-    "head_detection": {{
-        "tilt_threshold": 2.2,
-        "position_threshold": 0.35,
-        "shoulder_ratio_threshold": 2.1,
-        "hip_ratio_threshold": 1.4
-    }}
-}}
-"""
+        Example format:
+        THRESHOLD_ADJUSTMENT:
+        {
+            "head_detection": {
+                "tilt_threshold": 2.1,
+                "position_threshold": 0.38,
+                "shoulder_ratio_threshold": 2.1,
+                "hip_ratio_threshold": 1.4
+            }
+        }"""
         
         logger.info("Sending request to OpenAI API")
         try:
