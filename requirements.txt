@@ -1,8 +1,9 @@
+adb_shell=>0.4.4
 mdformat==0.7.22
 openai==1.76.0
 openai-agents==0.0.13
 opentelemetry-instrumentation-asyncio==0.53b1
+pydantic==2.11.3
 python-dotenv==1.1.0
 PyYAML==6.0.2
 sounddevice>=0.5.1
-adb_shell=>0.4.4
