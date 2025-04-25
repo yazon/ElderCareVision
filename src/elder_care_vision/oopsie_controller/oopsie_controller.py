@@ -341,12 +341,8 @@ class OopsieController:
             self.root.title("Fall Detection Monitor")
             
             # Calculate window size based on plot dimensions
-            # Threshold plots: 5.6x4.2 inches at 100 DPI = 560x420 pixels
-            # Detection plot: 5.6x2.1 inches at 100 DPI = 560x210 pixels
-            # Total height: 420 + 210 = 630 pixels
-            # Add 20 pixels padding
             window_width = 1120  # 560 * 2 for plots and sequence
-            window_height = 650  # 630 + 20 padding
+            window_height = 800  # Increased height to accommodate log widget
             
             # Set window size and make it non-resizable
             self.root.geometry(f"{window_width}x{window_height}")
@@ -361,7 +357,7 @@ class OopsieController:
             left_frame = tk.Frame(main_frame, bg='#1e1e1e', width=560)
             left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             
-            # Create right frame for sequence
+            # Create right frame for sequence and logs
             right_frame = tk.Frame(main_frame, bg='#1e1e1e', width=560)
             right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
             
@@ -376,6 +372,10 @@ class OopsieController:
             sequence_frame = tk.Frame(right_frame, bg='#1e1e1e')
             sequence_frame.pack(fill=tk.BOTH, expand=True)
             
+            # Create log frame below sequence
+            log_frame = tk.Frame(right_frame, bg='#1e1e1e')
+            log_frame.pack(fill=tk.BOTH, expand=True)
+            
             # Create labels for plot images
             self.threshold_label = tk.Label(threshold_frame, bg='#1e1e1e')
             self.threshold_label.pack(fill=tk.BOTH, expand=True)
@@ -387,11 +387,31 @@ class OopsieController:
             self.sequence_label = tk.Label(sequence_frame, bg='#1e1e1e')
             self.sequence_label.pack(fill=tk.BOTH, expand=True)
             
+            # Create queue status label
+            self.queue_status_label = tk.Label(
+                log_frame,
+                text="Queue Status: Initializing...",
+                bg='#1e1e1e',
+                fg='white',
+                font=('Courier', 10),
+                justify=tk.LEFT
+            )
+            self.queue_status_label.pack(fill=tk.X, padx=10, pady=5)
+            
+            # Create scrolled text widget for logs
+            self.log_text = scrolledtext.ScrolledText(
+                log_frame,
+                bg='#2d2d2d',
+                fg='white',
+                font=('Courier', 10),
+                height=10
+            )
+            self.log_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+            
             # Start periodic updates
             self._update_plots()
-            
-            # Start queue status updates
             self._update_queue_status()
+            self._update_logs()
             
             # Start the tkinter event loop
             self.root.mainloop()
@@ -522,21 +542,6 @@ class OopsieController:
     def _draw_threshold_history(self) -> None:
         """Update the matplotlib plots with current threshold history."""
         try:
-            # Only update every 5 frames to reduce overhead
-            self.update_counter += 1
-            if self.update_counter % 5 != 0:
-                return
-                
-            # Check if any values have changed
-            values_changed = False
-            for metric, history in self.threshold_history.items():
-                if history and history[-1] != self.last_values[metric]:
-                    values_changed = True
-                    self.last_values[metric] = history[-1]
-            
-            if not values_changed:
-                return
-                
             # Update plots for each metric
             for metric, history in self.threshold_history.items():
                 if not history:
@@ -555,186 +560,34 @@ class OopsieController:
                 self.min_lines[metric].set_ydata([min_val, min_val])
                 self.max_lines[metric].set_ydata([max_val, max_val])
                 
-                # Update text
-                self.text_boxes[metric].set_text(f"Current: {history[-1]:.2f}")
+                # Update text with more detailed stats
+                current = history[-1]
+                initial = history[0]
+                avg = sum(history) / len(history)
+                change = ((current - initial) / initial) * 100
                 
-                # Adjust axes limits
+                stats_text = (
+                    f"Current: {current:.2f}\n"
+                    f"Initial: {initial:.2f}\n"
+                    f"Avg: {avg:.2f}\n"
+                    f"Change: {change:+.1f}%"
+                )
+                self.text_boxes[metric].set_text(stats_text)
+                
+                # Adjust axes limits with padding
                 ax = self.plot_lines[metric].axes
-                ax.relim()
-                ax.autoscale_view()
+                y_min = min(history) * 0.95  # Add 5% padding
+                y_max = max(history) * 1.05
+                ax.set_ylim(y_min, y_max)
+                ax.set_xlim(-1, len(history))
+            
+            # Force redraw of the figure
+            self.fig_thresholds.canvas.draw()
+            self.fig_thresholds.canvas.flush_events()
             
         except Exception as e:
             logger.error(f"Error updating threshold history plots: {str(e)}")
             
-    def draw_poi(self, frame: np.ndarray, landmarks) -> np.ndarray:
-        """Draw Point of Interest markers and calculation points on detected persons.
-        
-        Args:
-            frame: The video frame to draw on
-            landmarks: MediaPipe pose landmarks
-            
-        Returns:
-            Frame with all calculation points and thresholds drawn
-        """
-        if landmarks is None:
-            return frame
-            
-        height, width = frame.shape[:2]
-        
-        # Get all key points used in calculations
-        left_shoulder = landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_SHOULDER]
-        right_shoulder = landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_SHOULDER]
-        left_hip = landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_HIP]
-        right_hip = landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_HIP]
-        
-        # Get head points (nose and ears)
-        nose = landmarks.landmark[self.alert.mp_pose.PoseLandmark.NOSE]
-        left_ear = landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_EAR]
-        right_ear = landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_EAR]
-        
-        # Convert normalized coordinates to pixel coordinates
-        ls_x = int(left_shoulder.x * width)
-        ls_y = int(left_shoulder.y * height)
-        rs_x = int(right_shoulder.x * width)
-        rs_y = int(right_shoulder.y * height)
-        lh_x = int(left_hip.x * width)
-        lh_y = int(left_hip.y * height)
-        rh_x = int(right_hip.x * width)
-        rh_y = int(right_hip.y * height)
-        
-        # Convert head points to pixel coordinates
-        nose_x = int(nose.x * width)
-        nose_y = int(nose.y * height)
-        le_x = int(left_ear.x * width)
-        le_y = int(left_ear.y * height)
-        re_x = int(right_ear.x * width)
-        re_y = int(right_ear.y * height)
-        
-        # Calculate center points
-        shoulder_center_x = (ls_x + rs_x) // 2
-        shoulder_center_y = (ls_y + rs_y) // 2
-        hip_center_x = (lh_x + rh_x) // 2
-        hip_center_y = (lh_y + rh_y) // 2
-        
-        # Calculate head center and orientation
-        head_center_x = (le_x + re_x) // 2
-        head_center_y = (le_y + re_y) // 2
-        
-        # Draw shoulder points and line
-        cv2.circle(frame, (ls_x, ls_y), 5, (0, 255, 255), -1)  # Left shoulder (cyan)
-        cv2.circle(frame, (rs_x, rs_y), 5, (0, 255, 255), -1)  # Right shoulder (cyan)
-        cv2.line(frame, (ls_x, ls_y), (rs_x, rs_y), (0, 255, 255), 2)  # Shoulder line
-        
-        # Draw hip points and line
-        cv2.circle(frame, (lh_x, lh_y), 5, (255, 255, 0), -1)  # Left hip (yellow)
-        cv2.circle(frame, (rh_x, rh_y), 5, (255, 255, 0), -1)  # Right hip (yellow)
-        cv2.line(frame, (lh_x, lh_y), (rh_x, rh_y), (255, 255, 0), 2)  # Hip line
-        
-        # Draw head points and line
-        cv2.circle(frame, (nose_x, nose_y), 5, (255, 0, 0), -1)  # Nose (blue)
-        cv2.circle(frame, (le_x, le_y), 5, (255, 0, 0), -1)  # Left ear (blue)
-        cv2.circle(frame, (re_x, re_y), 5, (255, 0, 0), -1)  # Right ear (blue)
-        cv2.line(frame, (le_x, le_y), (re_x, re_y), (255, 0, 0), 2)  # Head line
-        
-        # Draw center points
-        cv2.circle(frame, (shoulder_center_x, shoulder_center_y), 8, (0, 255, 0), -1)  # Shoulder center (green)
-        cv2.circle(frame, (hip_center_x, hip_center_y), 8, (0, 255, 0), -1)  # Hip center (green)
-        cv2.circle(frame, (head_center_x, head_center_y), 8, (0, 0, 255), -1)  # Head center (red)
-        
-        # Draw vertical distance lines
-        cv2.line(frame, 
-                (shoulder_center_x, shoulder_center_y),
-                (hip_center_x, hip_center_y),
-                (255, 0, 255), 2)  # Torso vertical line (magenta)
-        
-        cv2.line(frame,
-                (head_center_x, head_center_y),
-                (shoulder_center_x, shoulder_center_y),
-                (255, 0, 255), 2)  # Head to shoulder line (magenta)
-        
-        # Draw fall threshold line (horizontal line at threshold height)
-        threshold_y = int(height * self.alert.fall_threshold)
-        cv2.line(frame, 
-                (0, threshold_y),
-                (width, threshold_y),
-                (0, 0, 255), 1)  # Threshold line (red)
-        
-        # Add text labels
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.5
-        thickness = 1
-        
-        # Label shoulder points
-        cv2.putText(frame, "LS", (ls_x + 10, ls_y), font, font_scale, (0, 255, 255), thickness)
-        cv2.putText(frame, "RS", (rs_x + 10, rs_y), font, font_scale, (0, 255, 255), thickness)
-        
-        # Label hip points
-        cv2.putText(frame, "LH", (lh_x + 10, lh_y), font, font_scale, (255, 255, 0), thickness)
-        cv2.putText(frame, "RH", (rh_x + 10, rh_y), font, font_scale, (255, 255, 0), thickness)
-        
-        # Label head points
-        cv2.putText(frame, "N", (nose_x + 10, nose_y), font, font_scale, (255, 0, 0), thickness)
-        cv2.putText(frame, "LE", (le_x + 10, le_y), font, font_scale, (255, 0, 0), thickness)
-        cv2.putText(frame, "RE", (re_x + 10, re_y), font, font_scale, (255, 0, 0), thickness)
-        
-        # Label centers
-        cv2.putText(frame, "SC", (shoulder_center_x + 10, shoulder_center_y), font, font_scale, (0, 255, 0), thickness)
-        cv2.putText(frame, "HC", (hip_center_x + 10, hip_center_y), font, font_scale, (0, 255, 0), thickness)
-        cv2.putText(frame, "HD", (head_center_x + 10, head_center_y), font, font_scale, (0, 0, 255), thickness)
-        
-        # Label threshold
-        cv2.putText(frame, f"Fall Threshold: {self.alert.fall_threshold:.2f}", 
-                   (10, threshold_y - 10), font, font_scale, (0, 0, 255), thickness)
-        
-        return frame
-        
-    def _pose_changed_significantly(self, current_pose) -> bool:
-        """Check if the current pose has changed significantly from the last pose.
-        
-        Args:
-            current_pose: Current pose landmarks
-            
-        Returns:
-            True if pose has changed significantly, False otherwise
-        """
-        if self.last_pose_data is None:
-            self.last_pose_data = current_pose
-            return True
-            
-        # Get key points for comparison
-        current_points = {
-            'shoulder_y': (current_pose.landmark[self.alert.mp_pose.PoseLandmark.LEFT_SHOULDER].y + 
-                          current_pose.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_SHOULDER].y) * 0.5,
-            'hip_y': (current_pose.landmark[self.alert.mp_pose.PoseLandmark.LEFT_HIP].y + 
-                     current_pose.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_HIP].y) * 0.5,
-            'nose_y': current_pose.landmark[self.alert.mp_pose.PoseLandmark.NOSE].y
-        }
-        
-        last_points = {
-            'shoulder_y': (self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.LEFT_SHOULDER].y + 
-                          self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_SHOULDER].y) * 0.5,
-            'hip_y': (self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.LEFT_HIP].y + 
-                     self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_HIP].y) * 0.5,
-            'nose_y': self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.NOSE].y
-        }
-        
-        # Check if any key point has moved significantly
-        threshold = self.thresholds["pose_detection"]["movement_threshold"]
-        shoulder_diff = abs(current_points['shoulder_y'] - last_points['shoulder_y'])
-        hip_diff = abs(current_points['hip_y'] - last_points['hip_y'])
-        nose_diff = abs(current_points['nose_y'] - last_points['nose_y'])
-        
-        # Only consider it a significant change if multiple points have moved
-        significant_movement = (shoulder_diff > threshold and hip_diff > threshold) or \
-                             (shoulder_diff > threshold and nose_diff > threshold) or \
-                             (hip_diff > threshold and nose_diff > threshold)
-        
-        if significant_movement:
-            self.last_pose_data = current_pose
-            return True
-            
-        return False
-        
     def _update_threshold_history(self, category: str, key: str, value: float) -> None:
         """Update the threshold history with new values.
         
@@ -743,24 +596,32 @@ class OopsieController:
             key: Specific threshold key
             value: New threshold value
         """
-        if category == "head_detection":
-            if key == "tilt_threshold":
-                self.threshold_history["tilt"].append(value)
-                if len(self.threshold_history["tilt"]) > self.max_history_length:
-                    self.threshold_history["tilt"].pop(0)
-            elif key == "position_threshold":
-                self.threshold_history["position"].append(value)
-                if len(self.threshold_history["position"]) > self.max_history_length:
-                    self.threshold_history["position"].pop(0)
-            elif key == "shoulder_ratio_threshold":
-                self.threshold_history["shoulder_ratio"].append(value)
-                if len(self.threshold_history["shoulder_ratio"]) > self.max_history_length:
-                    self.threshold_history["shoulder_ratio"].pop(0)
-            elif key == "hip_ratio_threshold":
-                self.threshold_history["hip_ratio"].append(value)
-                if len(self.threshold_history["hip_ratio"]) > self.max_history_length:
-                    self.threshold_history["hip_ratio"].pop(0)
-                    
+        try:
+            if category == "head_detection":
+                if key == "tilt_threshold":
+                    self.threshold_history["tilt"].append(value)
+                    if len(self.threshold_history["tilt"]) > self.max_history_length:
+                        self.threshold_history["tilt"].pop(0)
+                elif key == "position_threshold":
+                    self.threshold_history["position"].append(value)
+                    if len(self.threshold_history["position"]) > self.max_history_length:
+                        self.threshold_history["position"].pop(0)
+                elif key == "shoulder_ratio_threshold":
+                    self.threshold_history["shoulder_ratio"].append(value)
+                    if len(self.threshold_history["shoulder_ratio"]) > self.max_history_length:
+                        self.threshold_history["shoulder_ratio"].pop(0)
+                elif key == "hip_ratio_threshold":
+                    self.threshold_history["hip_ratio"].append(value)
+                    if len(self.threshold_history["hip_ratio"]) > self.max_history_length:
+                        self.threshold_history["hip_ratio"].pop(0)
+                        
+            # Force an immediate redraw of the threshold plots
+            self._draw_threshold_history()
+            
+        except Exception as e:
+            logger.error(f"Error updating threshold history: {str(e)}")
+            logger.error(f"Category: {category}, Key: {key}, Value: {value}")
+            
     def _log_threshold_history(self) -> None:
         """Log the complete threshold history with colors."""
         logger.info(f"{Fore.CYAN}=== Threshold History ==={Style.RESET_ALL}")
@@ -981,33 +842,55 @@ class OopsieController:
         # ... (implement threshold calculations)
         return {}
 
-    def _update_queue_status(self):
-        """Update queue status display in tkinter window."""
-        if hasattr(self, 'root'):
-            status_text = (
-                f"Queue Status:\n"
-                f"Frames Queued: {self.frame_queue.qsize()}\n"
-                f"Total Queued: {self.queue_status['total_queued']}\n"
-                f"Total Processed: {self.queue_status['total_processed']}\n"
-                f"Dropped Frames: {self.queue_status['dropped_frames']}"
-            )
-            
-            # Create status label if it doesn't exist
-            if not hasattr(self, 'queue_status_label'):
-                self.queue_status_label = tk.Label(
-                    self.root,
-                    text=status_text,
-                    bg='#1e1e1e',
-                    fg='white',
-                    font=('Courier', 10),
-                    justify=tk.LEFT
-                )
-                self.queue_status_label.pack(side=tk.BOTTOM, padx=10, pady=10)
-            else:
-                self.queue_status_label.config(text=status_text)
-
+    def _update_logs(self) -> None:
+        """Update the log text widget with new messages from the queue."""
+        try:
+            while True:
+                try:
+                    # Get message from queue without blocking
+                    message = log_queue.get_nowait()
+                    
+                    # Enable text widget for editing
+                    self.log_text.configure(state='normal')
+                    
+                    # Add message with timestamp
+                    self.log_text.insert(tk.END, f"{message}\n")
+                    
+                    # Scroll to bottom
+                    self.log_text.see(tk.END)
+                    
+                    # Disable text widget for editing
+                    self.log_text.configure(state='disabled')
+                    
+                except queue.Empty:
+                    break
+                    
             # Schedule next update
-            self.root.after(100, self._update_queue_status)
+            if hasattr(self, 'root'):
+                self.root.after(100, self._update_logs)
+                
+        except Exception as e:
+            logger.error(f"Error updating logs: {str(e)}")
+            
+    def _update_queue_status(self) -> None:
+        """Update queue status display in tkinter window."""
+        try:
+            if hasattr(self, 'queue_status_label'):
+                status_text = (
+                    f"Queue Status:\n"
+                    f"Frames Queued: {self.frame_queue.qsize()}\n"
+                    f"Total Queued: {self.queue_status['total_queued']}\n"
+                    f"Total Processed: {self.queue_status['total_processed']}\n"
+                    f"Dropped Frames: {self.queue_status['dropped_frames']}"
+                )
+                self.queue_status_label.config(text=status_text)
+                
+            # Schedule next update
+            if hasattr(self, 'root'):
+                self.root.after(100, self._update_queue_status)
+                
+        except Exception as e:
+            logger.error(f"Error updating queue status: {str(e)}")
 
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, bool]:
         """Process a single frame for fall detection."""
@@ -1177,3 +1060,172 @@ class OopsieController:
         except Exception as e:
             logger.error(f"Error processing threshold adjustments: {str(e)}")
             logger.error(f"Analysis text: {analysis}")
+
+    def draw_poi(self, frame: np.ndarray, landmarks) -> np.ndarray:
+        """Draw Point of Interest markers and calculation points on detected persons.
+        
+        Args:
+            frame: The video frame to draw on
+            landmarks: MediaPipe pose landmarks
+            
+        Returns:
+            Frame with all calculation points and thresholds drawn
+        """
+        if landmarks is None:
+            return frame
+            
+        height, width = frame.shape[:2]
+        
+        # Get all key points used in calculations
+        left_shoulder = landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_SHOULDER]
+        right_shoulder = landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_SHOULDER]
+        left_hip = landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_HIP]
+        right_hip = landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_HIP]
+        
+        # Get head points (nose and ears)
+        nose = landmarks.landmark[self.alert.mp_pose.PoseLandmark.NOSE]
+        left_ear = landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_EAR]
+        right_ear = landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_EAR]
+        
+        # Convert normalized coordinates to pixel coordinates
+        ls_x = int(left_shoulder.x * width)
+        ls_y = int(left_shoulder.y * height)
+        rs_x = int(right_shoulder.x * width)
+        rs_y = int(right_shoulder.y * height)
+        lh_x = int(left_hip.x * width)
+        lh_y = int(left_hip.y * height)
+        rh_x = int(right_hip.x * width)
+        rh_y = int(right_hip.y * height)
+        
+        # Convert head points to pixel coordinates
+        nose_x = int(nose.x * width)
+        nose_y = int(nose.y * height)
+        le_x = int(left_ear.x * width)
+        le_y = int(left_ear.y * height)
+        re_x = int(right_ear.x * width)
+        re_y = int(right_ear.y * height)
+        
+        # Calculate center points
+        shoulder_center_x = (ls_x + rs_x) // 2
+        shoulder_center_y = (ls_y + rs_y) // 2
+        hip_center_x = (lh_x + rh_x) // 2
+        hip_center_y = (lh_y + rh_y) // 2
+        
+        # Calculate head center and orientation
+        head_center_x = (le_x + re_x) // 2
+        head_center_y = (le_y + re_y) // 2
+        
+        # Draw shoulder points and line
+        cv2.circle(frame, (ls_x, ls_y), 5, (0, 255, 255), -1)  # Left shoulder (cyan)
+        cv2.circle(frame, (rs_x, rs_y), 5, (0, 255, 255), -1)  # Right shoulder (cyan)
+        cv2.line(frame, (ls_x, ls_y), (rs_x, rs_y), (0, 255, 255), 2)  # Shoulder line
+        
+        # Draw hip points and line
+        cv2.circle(frame, (lh_x, lh_y), 5, (255, 255, 0), -1)  # Left hip (yellow)
+        cv2.circle(frame, (rh_x, rh_y), 5, (255, 255, 0), -1)  # Right hip (yellow)
+        cv2.line(frame, (lh_x, lh_y), (rh_x, rh_y), (255, 255, 0), 2)  # Hip line
+        
+        # Draw head points and line
+        cv2.circle(frame, (nose_x, nose_y), 5, (255, 0, 0), -1)  # Nose (blue)
+        cv2.circle(frame, (le_x, le_y), 5, (255, 0, 0), -1)  # Left ear (blue)
+        cv2.circle(frame, (re_x, re_y), 5, (255, 0, 0), -1)  # Right ear (blue)
+        cv2.line(frame, (le_x, le_y), (re_x, re_y), (255, 0, 0), 2)  # Head line
+        
+        # Draw center points
+        cv2.circle(frame, (shoulder_center_x, shoulder_center_y), 8, (0, 255, 0), -1)  # Shoulder center (green)
+        cv2.circle(frame, (hip_center_x, hip_center_y), 8, (0, 255, 0), -1)  # Hip center (green)
+        cv2.circle(frame, (head_center_x, head_center_y), 8, (0, 0, 255), -1)  # Head center (red)
+        
+        # Draw vertical distance lines
+        cv2.line(frame, 
+                (shoulder_center_x, shoulder_center_y),
+                (hip_center_x, hip_center_y),
+                (255, 0, 255), 2)  # Torso vertical line (magenta)
+        
+        cv2.line(frame,
+                (head_center_x, head_center_y),
+                (shoulder_center_x, shoulder_center_y),
+                (255, 0, 255), 2)  # Head to shoulder line (magenta)
+        
+        # Draw fall threshold line (horizontal line at threshold height)
+        threshold_y = int(height * self.alert.fall_threshold)
+        cv2.line(frame, 
+                (0, threshold_y),
+                (width, threshold_y),
+                (0, 0, 255), 1)  # Threshold line (red)
+        
+        # Add text labels
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.5
+        thickness = 1
+        
+        # Label shoulder points
+        cv2.putText(frame, "LS", (ls_x + 10, ls_y), font, font_scale, (0, 255, 255), thickness)
+        cv2.putText(frame, "RS", (rs_x + 10, rs_y), font, font_scale, (0, 255, 255), thickness)
+        
+        # Label hip points
+        cv2.putText(frame, "LH", (lh_x + 10, lh_y), font, font_scale, (255, 255, 0), thickness)
+        cv2.putText(frame, "RH", (rh_x + 10, rh_y), font, font_scale, (255, 255, 0), thickness)
+        
+        # Label head points
+        cv2.putText(frame, "N", (nose_x + 10, nose_y), font, font_scale, (255, 0, 0), thickness)
+        cv2.putText(frame, "LE", (le_x + 10, le_y), font, font_scale, (255, 0, 0), thickness)
+        cv2.putText(frame, "RE", (re_x + 10, re_y), font, font_scale, (255, 0, 0), thickness)
+        
+        # Label centers
+        cv2.putText(frame, "SC", (shoulder_center_x + 10, shoulder_center_y), font, font_scale, (0, 255, 0), thickness)
+        cv2.putText(frame, "HC", (hip_center_x + 10, hip_center_y), font, font_scale, (0, 255, 0), thickness)
+        cv2.putText(frame, "HD", (head_center_x + 10, head_center_y), font, font_scale, (0, 0, 255), thickness)
+        
+        # Label threshold
+        cv2.putText(frame, f"Fall Threshold: {self.alert.fall_threshold:.2f}", 
+                   (10, threshold_y - 10), font, font_scale, (0, 0, 255), thickness)
+        
+        return frame
+        
+    def _pose_changed_significantly(self, current_pose) -> bool:
+        """Check if the current pose has changed significantly from the last pose.
+        
+        Args:
+            current_pose: Current pose landmarks
+            
+        Returns:
+            True if pose has changed significantly, False otherwise
+        """
+        if self.last_pose_data is None:
+            self.last_pose_data = current_pose
+            return True
+            
+        # Get key points for comparison
+        current_points = {
+            'shoulder_y': (current_pose.landmark[self.alert.mp_pose.PoseLandmark.LEFT_SHOULDER].y + 
+                          current_pose.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_SHOULDER].y) * 0.5,
+            'hip_y': (current_pose.landmark[self.alert.mp_pose.PoseLandmark.LEFT_HIP].y + 
+                     current_pose.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_HIP].y) * 0.5,
+            'nose_y': current_pose.landmark[self.alert.mp_pose.PoseLandmark.NOSE].y
+        }
+        
+        last_points = {
+            'shoulder_y': (self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.LEFT_SHOULDER].y + 
+                          self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_SHOULDER].y) * 0.5,
+            'hip_y': (self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.LEFT_HIP].y + 
+                     self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_HIP].y) * 0.5,
+            'nose_y': self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.NOSE].y
+        }
+        
+        # Check if any key point has moved significantly
+        threshold = self.thresholds["pose_detection"]["movement_threshold"]
+        shoulder_diff = abs(current_points['shoulder_y'] - last_points['shoulder_y'])
+        hip_diff = abs(current_points['hip_y'] - last_points['hip_y'])
+        nose_diff = abs(current_points['nose_y'] - last_points['nose_y'])
+        
+        # Only consider it a significant change if multiple points have moved
+        significant_movement = (shoulder_diff > threshold and hip_diff > threshold) or \
+                             (shoulder_diff > threshold and nose_diff > threshold) or \
+                             (hip_diff > threshold and nose_diff > threshold)
+        
+        if significant_movement:
+            self.last_pose_data = current_pose
+            return True
+            
+        return False
