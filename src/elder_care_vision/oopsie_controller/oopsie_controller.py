@@ -12,16 +12,35 @@ from typing import Optional, Tuple
 import logging
 import time
 import json
+from colorama import init, Fore, Style
 
 from .oopsie_alert.oopsie_alert import FallDetector
 from .oopsie_nanny.oopsie_nanny import ImageRecognizer
 
+# Initialize colorama
+init()
+
+# Configure logging with colors
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter that adds colors to log messages."""
+    
+    def format(self, record):
+        if record.levelno == logging.ERROR:
+            record.msg = f"{Fore.RED}{record.msg}{Style.RESET_ALL}"
+        elif record.levelno == logging.WARNING:
+            record.msg = f"{Fore.YELLOW}{record.msg}{Style.RESET_ALL}"
+        elif record.levelno == logging.INFO:
+            record.msg = f"{Fore.GREEN}{record.msg}{Style.RESET_ALL}"
+        elif record.levelno == logging.DEBUG:
+            record.msg = f"{Fore.CYAN}{record.msg}{Style.RESET_ALL}"
+        return super().format(record)
+
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setFormatter(ColoredFormatter("%(asctime)s - %(levelname)s - %(message)s"))
+logger.addHandler(handler)
 
 class OopsieController:
     """The main controller that orchestrates fall detection and verification.
@@ -41,6 +60,8 @@ class OopsieController:
         last_pose_data: Store of the last processed pose data
         thresholds: Configuration values loaded from JSON
         update_counter: Counter for update frequency
+        threshold_history: Dictionary to store threshold history
+        max_history_length: Maximum length of threshold history
     """
     
     def __init__(self):
@@ -88,6 +109,16 @@ class OopsieController:
         self.llm_cooldown = self.thresholds["llm"]["cooldown_seconds"]
         self.last_pose_data = None
         self.update_counter = 0  # Counter for update frequency
+        
+        # Initialize threshold history
+        self.threshold_history = {
+            "tilt": [],
+            "position": [],
+            "shoulder_ratio": [],
+            "hip_ratio": []
+        }
+        self.max_history_length = 50  # Keep last 50 values
+        
         logger.info("OopsieController initialized and ready for fall detection")
         
     def draw_poi(self, frame: np.ndarray, landmarks) -> np.ndarray:
@@ -259,12 +290,66 @@ class OopsieController:
             
         return False
         
-    def _apply_threshold_adjustments(self, adjustments: dict) -> None:
-        """Apply threshold adjustments with safety checks.
+    def _update_threshold_history(self, category: str, key: str, value: float) -> None:
+        """Update the threshold history with new values.
         
         Args:
-            adjustments: Dictionary containing threshold adjustments
+            category: Category of the threshold
+            key: Specific threshold key
+            value: New threshold value
         """
+        if category == "head_detection":
+            if key == "tilt_threshold":
+                self.threshold_history["tilt"].append(value)
+                if len(self.threshold_history["tilt"]) > self.max_history_length:
+                    self.threshold_history["tilt"].pop(0)
+            elif key == "position_threshold":
+                self.threshold_history["position"].append(value)
+                if len(self.threshold_history["position"]) > self.max_history_length:
+                    self.threshold_history["position"].pop(0)
+            elif key == "shoulder_ratio_threshold":
+                self.threshold_history["shoulder_ratio"].append(value)
+                if len(self.threshold_history["shoulder_ratio"]) > self.max_history_length:
+                    self.threshold_history["shoulder_ratio"].pop(0)
+            elif key == "hip_ratio_threshold":
+                self.threshold_history["hip_ratio"].append(value)
+                if len(self.threshold_history["hip_ratio"]) > self.max_history_length:
+                    self.threshold_history["hip_ratio"].pop(0)
+                    
+    def _log_threshold_history(self) -> None:
+        """Log the complete threshold history with colors."""
+        logger.info(f"{Fore.CYAN}=== Threshold History ==={Style.RESET_ALL}")
+        for metric, history in self.threshold_history.items():
+            if history:
+                # Calculate statistics
+                current = history[-1]
+                initial = history[0]
+                min_val = min(history)
+                max_val = max(history)
+                avg = sum(history) / len(history)
+                change = ((current - initial) / initial) * 100
+                
+                # Determine color based on change
+                if change > 0:
+                    change_color = Fore.RED
+                elif change < 0:
+                    change_color = Fore.GREEN
+                else:
+                    change_color = Fore.YELLOW
+                
+                # Log the statistics
+                logger.info(f"{Fore.CYAN}{metric}:{Style.RESET_ALL}")
+                logger.info(f"  Current: {Fore.YELLOW}{current:.2f}{Style.RESET_ALL}")
+                logger.info(f"  Initial: {Fore.YELLOW}{initial:.2f}{Style.RESET_ALL}")
+                logger.info(f"  Min: {Fore.YELLOW}{min_val:.2f}{Style.RESET_ALL}")
+                logger.info(f"  Max: {Fore.YELLOW}{max_val:.2f}{Style.RESET_ALL}")
+                logger.info(f"  Average: {Fore.YELLOW}{avg:.2f}{Style.RESET_ALL}")
+                logger.info(f"  Change: {change_color}{change:+.1f}%{Style.RESET_ALL}")
+                logger.info(f"  History: {Fore.YELLOW}{', '.join(f'{x:.2f}' for x in history)}{Style.RESET_ALL}")
+                logger.info("")
+                
+    def _apply_threshold_adjustments(self, adjustments: dict) -> None:
+        """Apply threshold adjustments with safety checks."""
         try:
             # Check if auto-update is enabled
             if not self.thresholds["auto_update"]["enabled"]:
@@ -277,7 +362,16 @@ class OopsieController:
                 return
             self.update_counter = 0
             
+            # Log the current configuration before changes
+            logger.info(f"{Fore.CYAN}=== Current Configuration ==={Style.RESET_ALL}")
+            for category, values in self.thresholds.items():
+                if isinstance(values, dict):
+                    logger.info(f"{Fore.YELLOW}{category}:{Style.RESET_ALL}")
+                    for key, value in values.items():
+                        logger.info(f"  {key}: {Fore.GREEN}{value}{Style.RESET_ALL}")
+            
             # Apply adjustments with safety limits
+            changes_made = False
             for category, values in adjustments.items():
                 if category in self.thresholds:
                     for key, value in values.items():
@@ -294,19 +388,76 @@ class OopsieController:
                                     value = current_value * (1 - self.thresholds["auto_update"]["max_adjustment"])
                                 logger.info(f"Limited adjustment for {category}.{key} to {value:.2f}")
                             
-                            # Update the threshold
+                            # Update the threshold and history
+                            old_value = self.thresholds[category][key]
                             self.thresholds[category][key] = value
+                            self._update_threshold_history(category, key, value)
+                            changes_made = True
                             
-            # Save updated thresholds to config file
-            config_path = Path(__file__).parent / "config" / "thresholds.json"
-            with open(config_path, "w") as f:
-                json.dump(self.thresholds, f, indent=4)
+                            # Log the change
+                            change_percent = ((value - old_value) / old_value) * 100
+                            change_color = Fore.RED if change_percent > 0 else Fore.GREEN
+                            logger.info(f"{Fore.CYAN}Threshold updated:{Style.RESET_ALL}")
+                            logger.info(f"  {category}.{key}:")
+                            logger.info(f"    Old: {Fore.YELLOW}{old_value:.2f}{Style.RESET_ALL}")
+                            logger.info(f"    New: {Fore.YELLOW}{value:.2f}{Style.RESET_ALL}")
+                            logger.info(f"    Change: {change_color}{change_percent:+.1f}%{Style.RESET_ALL}")
+            
+            if changes_made:
+                # Save updated thresholds to config file
+                config_path = Path(__file__).parent / "config" / "thresholds.json"
+                with open(config_path, "w") as f:
+                    json.dump(self.thresholds, f, indent=4)
                 
-            logger.info(f"Updated thresholds based on feedback: {adjustments}")
+                logger.info(f"{Fore.GREEN}✓ Configuration successfully updated and saved{Style.RESET_ALL}")
+                self._log_threshold_history()  # Log the complete history after update
+            else:
+                logger.info(f"{Fore.YELLOW}No threshold adjustments were applied{Style.RESET_ALL}")
             
         except Exception as e:
             logger.error(f"Failed to apply threshold adjustments: {str(e)}")
+            
+    def _draw_threshold_history(self, frame: np.ndarray, x_offset: int, y_offset: int) -> None:
+        """Draw threshold history on the frame.
         
+        Args:
+            frame: The video frame to draw on
+            x_offset: X position to start drawing
+            y_offset: Y position to start drawing
+        """
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.4
+        thickness = 1
+        color = (0, 255, 255)  # Yellow color
+        
+        # Draw history for each threshold
+        for metric, history in self.threshold_history.items():
+            if history:
+                # Calculate average and trend
+                avg = sum(history) / len(history)
+                trend = "↑" if history[-1] > avg else "↓"
+                
+                # Draw metric name and current value
+                cv2.putText(frame, f"{metric}: {history[-1]:.2f} {trend}", 
+                           (x_offset, y_offset), font, font_scale, color, thickness)
+                y_offset += 20
+                
+                # Draw min/max values
+                min_val = min(history)
+                max_val = max(history)
+                cv2.putText(frame, f"Min: {min_val:.2f} Max: {max_val:.2f}", 
+                           (x_offset, y_offset), font, font_scale, color, thickness)
+                y_offset += 20
+                
+                # Draw change from initial value
+                if len(history) > 1:
+                    change = ((history[-1] - history[0]) / history[0]) * 100
+                    cv2.putText(frame, f"Change: {change:+.1f}%", 
+                               (x_offset, y_offset), font, font_scale, color, thickness)
+                    y_offset += 20
+                
+                y_offset += 10  # Add spacing between metrics
+                
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, bool]:
         """Process a single frame for fall detection and verification.
         
@@ -423,6 +574,9 @@ class OopsieController:
                 cv2.putText(frame, f"Auto-update: {auto_update_status}", 
                            (10, y_offset), font, font_scale, (255, 255, 0), thickness)
                 
+                # Draw threshold history on the right side
+                self._draw_threshold_history(frame, width - 200, 20)
+                
                 # Highlight exceeded thresholds in red
                 if is_head_tilted:
                     cv2.putText(frame, "TILT EXCEEDED", (150, 20), font, font_scale, (0, 0, 255), thickness)
@@ -462,11 +616,47 @@ class OopsieController:
                                 try:
                                     # Extract threshold adjustments from the analysis
                                     adjustment_text = analysis.split("THRESHOLD_ADJUSTMENT:")[1].strip()
+                                    
+                                    # Handle JSON in markdown code blocks
+                                    if "```json" in adjustment_text:
+                                        # Extract JSON from code block
+                                        json_start = adjustment_text.find("```json") + 7
+                                        json_end = adjustment_text.find("```", json_start)
+                                        if json_end != -1:
+                                            adjustment_text = adjustment_text[json_start:json_end].strip()
+                                    else:
+                                        # Find the start of the JSON (first '{')
+                                        json_start = adjustment_text.find("{")
+                                        if json_start != -1:
+                                            # Find the matching closing brace
+                                            brace_count = 0
+                                            for i in range(json_start, len(adjustment_text)):
+                                                if adjustment_text[i] == "{":
+                                                    brace_count += 1
+                                                elif adjustment_text[i] == "}":
+                                                    brace_count -= 1
+                                                    if brace_count == 0:
+                                                        adjustment_text = adjustment_text[json_start:i+1]
+                                                        break
+                                    
+                                    # Remove any newlines and extra spaces
+                                    adjustment_text = " ".join(adjustment_text.split())
+                                    # Parse the JSON
                                     adjustments = json.loads(adjustment_text)
+                                    
+                                    # Handle fall_threshold at root level
+                                    if "fall_threshold" in adjustments:
+                                        # Move fall_threshold under head_detection
+                                        if "head_detection" not in adjustments:
+                                            adjustments["head_detection"] = {}
+                                        adjustments["head_detection"]["fall_threshold"] = adjustments.pop("fall_threshold")
                                     
                                     # Apply adjustments with auto-update checks
                                     self._apply_threshold_adjustments(adjustments)
                                     
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"Failed to parse threshold adjustments JSON: {str(e)}")
+                                    logger.debug(f"Raw adjustment text: {adjustment_text}")
                                 except Exception as e:
                                     logger.error(f"Failed to process threshold adjustments: {str(e)}")
                     except Exception as e:

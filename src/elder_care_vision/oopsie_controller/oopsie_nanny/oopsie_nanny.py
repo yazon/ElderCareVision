@@ -117,7 +117,7 @@ THRESHOLD_ADJUSTMENT:
         logger.info("Sending request to OpenAI API")
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4.1-mini",
                 messages=[
                     {
                         "role": "user",
