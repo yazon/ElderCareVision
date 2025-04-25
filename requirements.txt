@@ -3,8 +3,9 @@ mdformat==0.7.22
 openai==1.76.0
 openai-agents==0.0.13
 opentelemetry-instrumentation-asyncio==0.53b1
+pure-python-adb>=0.3.0.dev0
 pydantic==2.11.3
 python-dotenv==1.1.0
 PyYAML==6.0.2
 sounddevice>=0.5.1
-pure-python-adb>=0.3.0.dev0
+soundfile>=0.13.1
