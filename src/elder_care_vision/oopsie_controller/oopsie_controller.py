@@ -13,6 +13,9 @@ import logging
 import time
 import json
 from colorama import init, Fore, Style
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('TkAgg')  # Use TkAgg backend for interactive plots
 
 from .oopsie_alert.oopsie_alert import FallDetector
 from .oopsie_nanny.oopsie_nanny import ImageRecognizer
@@ -62,6 +65,9 @@ class OopsieController:
         update_counter: Counter for update frequency
         threshold_history: Dictionary to store threshold history
         max_history_length: Maximum length of threshold history
+        fig: Matplotlib figure for threshold history plots
+        axs: Matplotlib axes for threshold history plots
+        plot_colors: Colors for threshold history plots
     """
     
     def __init__(self):
@@ -96,8 +102,8 @@ class OopsieController:
                 "auto_update": {
                     "enabled": False,
                     "min_confidence": 0.8,
-                    "max_adjustment": 0.2,
-                    "update_frequency": 10
+                    "max_adjustment": 0.1,
+                    "update_frequency": 5
                 }
             }
             
@@ -118,6 +124,38 @@ class OopsieController:
             "hip_ratio": []
         }
         self.max_history_length = 50  # Keep last 50 values
+        
+        # Initialize matplotlib figure
+        plt.ion()  # Turn on interactive mode
+        self.fig, self.axs = plt.subplots(2, 2, figsize=(12, 8))
+        self.fig.suptitle("Threshold History", fontsize=16)
+        self.fig.patch.set_facecolor('#1e1e1e')  # Dark background
+        self.fig.patch.set_alpha(0.8)
+        
+        # Configure subplots
+        for ax in self.axs.flat:
+            ax.set_facecolor('#2d2d2d')  # Slightly lighter background
+            ax.tick_params(colors='white')  # White text
+            ax.spines['bottom'].set_color('white')
+            ax.spines['top'].set_color('white')
+            ax.spines['left'].set_color('white')
+            ax.spines['right'].set_color('white')
+            ax.xaxis.label.set_color('white')
+            ax.yaxis.label.set_color('white')
+        
+        # Set titles and labels
+        self.axs[0, 0].set_title("Tilt Threshold", color='white')
+        self.axs[0, 1].set_title("Position Threshold", color='white')
+        self.axs[1, 0].set_title("Shoulder Ratio", color='white')
+        self.axs[1, 1].set_title("Hip Ratio", color='white')
+        
+        # Colors for each metric
+        self.plot_colors = {
+            "tilt": "#00ffff",  # Cyan
+            "position": "#ffff00",  # Yellow
+            "shoulder_ratio": "#ff00ff",  # Magenta
+            "hip_ratio": "#00ff00"  # Green
+        }
         
         logger.info("OopsieController initialized and ready for fall detection")
         
@@ -422,47 +460,64 @@ class OopsieController:
             logger.error(f"Adjustments attempted: {json.dumps(adjustments, indent=2)}")
             logger.error(f"Current thresholds: {json.dumps(self.thresholds, indent=2)}")
             
-    def _draw_threshold_history(self, frame: np.ndarray, x_offset: int, y_offset: int) -> None:
-        """Draw threshold history on the frame.
-        
-        Args:
-            frame: The video frame to draw on
-            x_offset: X position to start drawing
-            y_offset: Y position to start drawing
-        """
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.4
-        thickness = 1
-        color = (0, 255, 255)  # Yellow color
-        
-        # Draw history for each threshold
-        for metric, history in self.threshold_history.items():
-            if history:
-                # Calculate average and trend
-                avg = sum(history) / len(history)
-                trend = "↑" if history[-1] > avg else "↓"
+    def _draw_threshold_history(self) -> None:
+        """Update the matplotlib plots with current threshold history."""
+        try:
+            # Clear previous plots
+            for ax in self.axs.flat:
+                ax.clear()
+                ax.set_facecolor('#2d2d2d')
+                ax.tick_params(colors='white')
+                ax.spines['bottom'].set_color('white')
+                ax.spines['top'].set_color('white')
+                ax.spines['left'].set_color('white')
+                ax.spines['right'].set_color('white')
+                ax.xaxis.label.set_color('white')
+                ax.yaxis.label.set_color('white')
+            
+            # Update plots for each metric
+            metrics = {
+                "tilt": (0, 0),
+                "position": (0, 1),
+                "shoulder_ratio": (1, 0),
+                "hip_ratio": (1, 1)
+            }
+            
+            for metric, (row, col) in metrics.items():
+                history = self.threshold_history[metric]
+                if not history:
+                    continue
+                    
+                ax = self.axs[row, col]
+                ax.set_title(f"{metric.replace('_', ' ').title()}", color='white')
                 
-                # Draw metric name and current value
-                cv2.putText(frame, f"{metric}: {history[-1]:.2f} {trend}", 
-                           (x_offset, y_offset), font, font_scale, color, thickness)
-                y_offset += 20
+                # Plot the line
+                ax.plot(history, color=self.plot_colors[metric], linewidth=2)
                 
-                # Draw min/max values
+                # Add current value point
+                if history:
+                    ax.plot(len(history)-1, history[-1], 'o', color=self.plot_colors[metric], markersize=8)
+                
+                # Add min/max lines
                 min_val = min(history)
                 max_val = max(history)
-                cv2.putText(frame, f"Min: {min_val:.2f} Max: {max_val:.2f}", 
-                           (x_offset, y_offset), font, font_scale, color, thickness)
-                y_offset += 20
+                ax.axhline(y=min_val, color='white', linestyle='--', alpha=0.3)
+                ax.axhline(y=max_val, color='white', linestyle='--', alpha=0.3)
                 
-                # Draw change from initial value
-                if len(history) > 1:
-                    change = ((history[-1] - history[0]) / history[0]) * 100
-                    cv2.putText(frame, f"Change: {change:+.1f}%", 
-                               (x_offset, y_offset), font, font_scale, color, thickness)
-                    y_offset += 20
-                
-                y_offset += 10  # Add spacing between metrics
-                
+                # Add current value text
+                if history:
+                    ax.text(0.02, 0.98, f"Current: {history[-1]:.2f}",
+                            transform=ax.transAxes, color='white',
+                            verticalalignment='top', bbox=dict(facecolor='black', alpha=0.5))
+            
+            # Adjust layout and update the plot
+            plt.tight_layout()
+            plt.draw()
+            plt.pause(0.001)  # Small pause to allow the plot to update
+            
+        except Exception as e:
+            logger.error(f"Error updating threshold history plots: {str(e)}")
+            
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, bool]:
         """Process a single frame for fall detection and verification.
         
@@ -561,36 +616,45 @@ class OopsieController:
                 
                 # Draw current values
                 y_offset = 20
+                # Use red color if threshold is exceeded, green otherwise
+                tilt_color = (0, 0, 255) if is_head_tilted else (0, 255, 0)
                 cv2.putText(frame, f"Tilt: {head_to_nose_ratio:.2f} / {self.thresholds['head_detection']['tilt_threshold']:.2f}", 
-                           (10, y_offset), font, font_scale, color, thickness)
+                           (10, y_offset), font, font_scale, tilt_color, thickness)
                 y_offset += 20
-                cv2.putText(frame, f"Position: {head_center_y:.2f} / {self.alert.fall_threshold + self.thresholds['head_detection']['position_threshold']:.2f}", 
-                           (10, y_offset), font, font_scale, color, thickness)
-                y_offset += 20
-                cv2.putText(frame, f"Shoulder Ratio: {head_to_shoulder_ratio:.2f} / {self.thresholds['head_detection']['shoulder_ratio_threshold']:.2f}", 
-                           (10, y_offset), font, font_scale, color, thickness)
-                y_offset += 20
-                cv2.putText(frame, f"Hip Ratio: {head_to_hip_ratio:.2f} / {self.thresholds['head_detection']['hip_ratio_threshold']:.2f}", 
-                           (10, y_offset), font, font_scale, color, thickness)
                 
-                # Add auto-update status
+                # Use red color if threshold is exceeded, green otherwise
+                position_color = (0, 0, 255) if is_head_low else (0, 255, 0)
+                cv2.putText(frame, f"Position: {head_center_y:.2f} / {self.alert.fall_threshold + self.thresholds['head_detection']['position_threshold']:.2f}", 
+                           (10, y_offset), font, font_scale, position_color, thickness)
                 y_offset += 20
-                auto_update_status = "ON" if self.thresholds["auto_update"]["enabled"] else "OFF"
-                cv2.putText(frame, f"Auto-update: {auto_update_status}", 
-                           (10, y_offset), font, font_scale, (255, 255, 0), thickness)
+                
+                # Use red color if threshold is exceeded, green otherwise
+                shoulder_color = (0, 0, 255) if is_head_relative_low else (0, 255, 0)
+                cv2.putText(frame, f"Shoulder Ratio: {head_to_shoulder_ratio:.2f} / {self.thresholds['head_detection']['shoulder_ratio_threshold']:.2f}", 
+                           (10, y_offset), font, font_scale, shoulder_color, thickness)
+                y_offset += 20
+                
+                # Use red color if threshold is exceeded, green otherwise
+                hip_color = (0, 0, 255) if is_head_near_hips else (0, 255, 0)
+                cv2.putText(frame, f"Hip Ratio: {head_to_hip_ratio:.2f} / {self.thresholds['head_detection']['hip_ratio_threshold']:.2f}", 
+                           (10, y_offset), font, font_scale, hip_color, thickness)
+                
+                # Add warning text for exceeded thresholds
+                y_offset += 20
+                if is_head_tilted:
+                    cv2.putText(frame, "TILT EXCEEDED", (150, y_offset), font, font_scale, (0, 0, 255), thickness)
+                    y_offset += 20
+                if is_head_low:
+                    cv2.putText(frame, "POSITION EXCEEDED", (150, y_offset), font, font_scale, (0, 0, 255), thickness)
+                    y_offset += 20
+                if is_head_relative_low:
+                    cv2.putText(frame, "SHOULDER RATIO EXCEEDED", (150, y_offset), font, font_scale, (0, 0, 255), thickness)
+                    y_offset += 20
+                if is_head_near_hips:
+                    cv2.putText(frame, "HIP RATIO EXCEEDED", (150, y_offset), font, font_scale, (0, 0, 255), thickness)
                 
                 # Draw threshold history on the right side
-                self._draw_threshold_history(frame, width - 200, 20)
-                
-                # Highlight exceeded thresholds in red
-                if is_head_tilted:
-                    cv2.putText(frame, "TILT EXCEEDED", (150, 20), font, font_scale, (0, 0, 255), thickness)
-                if is_head_low:
-                    cv2.putText(frame, "POSITION EXCEEDED", (150, 40), font, font_scale, (0, 0, 255), thickness)
-                if is_head_relative_low:
-                    cv2.putText(frame, "SHOULDER RATIO EXCEEDED", (150, 60), font, font_scale, (0, 0, 255), thickness)
-                if is_head_near_hips:
-                    cv2.putText(frame, "HIP RATIO EXCEEDED", (150, 80), font, font_scale, (0, 0, 255), thickness)
+                self._draw_threshold_history()
             
             if potential_fall and not self.fall_confirmed:
                 # Check cooldown and pose change
@@ -692,6 +756,9 @@ class OopsieController:
                 logger.info("Fall warning period ended")
                 self.fall_confirmed = False
                 
+        # Update plots after processing frame
+        self._draw_threshold_history()
+        
         return frame, self.fall_confirmed
         
     def process_video(self, video_path: str) -> None:
