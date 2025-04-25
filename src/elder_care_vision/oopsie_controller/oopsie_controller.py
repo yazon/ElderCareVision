@@ -107,6 +107,7 @@ class OopsieController:
         text_boxes: Dictionary to store text boxes
         detection_history: Dictionary to store detection history
         detection_lines: Dictionary to store detection lines
+        error_counters: Dictionary to store error counters
     """
     
     def __init__(self):
@@ -169,6 +170,13 @@ class OopsieController:
             "algorithm": [],  # Algorithm detection status (0 or 1)
             "llm": [],       # LLM detection status (0 or 1)
             "confirmed": []  # Final confirmed status (0 or 1)
+        }
+        
+        # Initialize error counters
+        self.error_counters = {
+            "algorithm": 0,  # Total algorithm detections
+            "llm": 0,       # Total LLM confirmations
+            "confirmed": 0   # Total confirmed falls
         }
         
         # Initialize matplotlib figures with smaller sizes
@@ -272,6 +280,11 @@ class OopsieController:
         # Add legend to detection plot with smaller font
         self.ax_detection.legend(loc='upper right', facecolor='#2d2d2d', edgecolor='white', 
                                labelcolor='white', fontsize=8)
+        
+        # Add error counter text to detection plot
+        self.error_text = self.ax_detection.text(0.02, 0.02, "", transform=self.ax_detection.transAxes, 
+                                               color='white', fontsize=8,
+                                               bbox=dict(facecolor='black', alpha=0.5))
         
         # Set initial layout with tighter spacing
         plt.tight_layout(pad=1.0)
@@ -981,6 +994,14 @@ class OopsieController:
         self.detection_history["llm"].append(1.0 if llm_detected else 0.0)
         self.detection_history["confirmed"].append(1.0 if self.fall_confirmed else 0.0)
         
+        # Update error counters
+        if algorithm_detected:
+            self.error_counters["algorithm"] += 1
+        if llm_detected:
+            self.error_counters["llm"] += 1
+        if self.fall_confirmed:
+            self.error_counters["confirmed"] += 1
+        
         # Keep history length limited
         for key in self.detection_history:
             if len(self.detection_history[key]) > self.max_history_length:
@@ -990,6 +1011,10 @@ class OopsieController:
         x_data = list(range(len(self.detection_history["algorithm"])))
         for detector in ["algorithm", "llm", "confirmed"]:
             self.detection_lines[detector].set_data(x_data, self.detection_history[detector])
+        
+        # Update error counter text
+        error_text = f"Total Detections:\nAlgorithm: {self.error_counters['algorithm']}\nLLM: {self.error_counters['llm']}\nConfirmed: {self.error_counters['confirmed']}"
+        self.error_text.set_text(error_text)
         
         # Adjust axes limits
         self.ax_detection.relim()
