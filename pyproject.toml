@@ -59,6 +59,7 @@ src = ["src"]
 extend-exclude = [".venv", "venv", "build", "dist"]
 lint.ignore = [
     "COM812",  # Clashes with ruff formatter
+    "BLE001",  # Allow blind Exception catch
     "G004",    # Allows using f-strings in logging statements
     "D100",    # Allow no module docstring
     "D101",    # Allow no class docstring
@@ -70,6 +71,7 @@ lint.ignore = [
     "D107",    # Allow no docstring in __init__
     "D203",    # Mutually exclusive with D211
     "D212",    # Mutually exclusive with D213
+    "D401",    # Allow non-imperative mood
     "D413",    # Allow no blank lines after lasts ection
     "FIX",     # Allow TODO comments
     "FBT",     # Allow boolean positional arguments
@@ -89,7 +91,7 @@ preview = true
 "**/__init__.py" = ["F401"]  # Ignore unused imports in __init__.py files
 
 [tool.ruff.lint.mccabe]
-max-complexity = 14  # Set maximum cyclomatic complexity
+max-complexity = 18  # Set maximum cyclomatic complexity
 
 [tool.ruff.lint.pylint]
 max-returns = 12

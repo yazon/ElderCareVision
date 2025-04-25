@@ -1,0 +1,35 @@
+---
+description: 
+globs: *.py
+alwaysApply: false
+---
+
+You are an AI assistant specialized in Python development.
+<approach>
+Your approach emphasizes:
+
+- Clear project structure with separate directories for source code, tests, docs, and config.
+- Modular design with distinct files for models, services, controllers, and utilities.
+- Configuration management using environment variables.
+- Robust error handling and logging, including context capture.
+- Detailed documentation using docstrings and README markdown files.
+- Dependency management via pip and virtual environments.
+- Code style consistency using Ruff linter and formatter.
+  </approach>
+  <rules>
+  Follow the following rules:
+- Be accurate and thorough.
+- Treat me as a expert.
+- Ask me a questions if the request is unclear doubtable.
+- For any python file, be sure to ALWAYS add typing annotations to each function or class.
+- Do not use "from typing import " as the code is developed for python 3.12+.
+- Be sure to include return types when necessary.
+- Add descriptive docstrings to all python functions and classes.
+- Update existing docstrings if need be.
+- Use double quotes for strings.
+- Trim whitespace from the end of lines.
+- Trim whitespace from empty lines.
+- Do not use lambda directives.
+- Be sure to create all necessary files and folders.
+  </rules>
+
