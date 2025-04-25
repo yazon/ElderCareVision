@@ -4,3 +4,5 @@ openai-agents==0.0.13
 opentelemetry-instrumentation-asyncio==0.53b1
 python-dotenv==1.1.0
 PyYAML==6.0.2
+sounddevice>=0.5.1
+adb_shell=>0.4.4
