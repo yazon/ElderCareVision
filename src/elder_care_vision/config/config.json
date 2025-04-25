@@ -1,0 +1,22 @@
+{
+    "agent": {
+        "coordinator": {
+            "model": "gpt-4.1",
+            "temperature": 0.7
+        },
+        "healt_inquiry": {
+            "model": "gpt-4.1",
+            "temperature": 0.7
+        },
+        "psa": {
+            "model": "o3-mini",
+            "temperature": 0.7
+        }
+    },
+    "tool": {
+        "emergency_alert": {
+            "model": "gpt-4.1",
+            "temperature": 0.7
+        }
+    }
+}
