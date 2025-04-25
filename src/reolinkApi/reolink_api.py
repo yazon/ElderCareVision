@@ -27,23 +27,21 @@ class ReolinkAPI:
         """
         Perform login to the Reolink camera and store the authentication token.
         """
-        cmd = "Login"
-        login_url = f"{self.base_url}/api.cgi?cmd={cmd}"
-        
-        login_data = [{
-            "cmd": f"{cmd}",
-            "action": 0,
-            "param": {
-                "User": {
-                    "Version": 0,
-                    "userName": self.username,
-                    "password": self.password
-                }
+        url_params = {"cmd": "Login"}
+        post_data = {
+            "User": {
+                "Version": 0,
+                "userName": self.username,
+                "password": self.password
             }
-        }]
+        }
         
         try:
-            response = self.session.post(login_url, json=login_data)
+            response = self.session.post(f"{self.base_url}/api.cgi?cmd=Login", json=[{
+                "cmd": "Login",
+                "action": 0,
+                "param": post_data
+            }])
             response.raise_for_status()
             
             data = response.json()
@@ -55,13 +53,13 @@ class ReolinkAPI:
         except requests.exceptions.RequestException as e:
             raise Exception(f"Failed to connect to camera: {str(e)}")
     
-    def _make_request(self, cmd: str, params: dict | None = None) -> dict | bytes:
+    def _make_request(self, url_params: dict, post_data: dict | None = None) -> dict | bytes:
         """
         Make an authenticated request to the Reolink camera.
         
         Args:
-            cmd (str): The command to execute
-            params (dict | None): Additional parameters for the command
+            url_params (dict): URL parameters including command and token
+            post_data (dict | None): POST request data dictionary. Defaults to None.
             
         Returns:
             dict | bytes: The response from the camera, either JSON data or binary data for snapshots
@@ -69,22 +67,17 @@ class ReolinkAPI:
         if not self.token:
             raise Exception("Not logged in")
             
-        request_data = [{
-            "cmd": cmd,
-            "param": params or {},
-        }]
-        
-        request_url = f"{self.base_url}/api.cgi?cmd={request_data[0]['cmd']}&token={self.token}"
-        if params is not None:
-            for key, value in params.items():
-                request_url += f"&{key}={value}"
+        # Build URL with parameters
+        request_url = f"{self.base_url}/api.cgi"
+        if url_params:
+            request_url += "?" + "&".join(f"{key}={value}" for key, value in url_params.items())
         
         try:
-            response = self.session.post(request_url, json=request_data)
+            response = self.session.post(request_url, json=post_data)
             response.raise_for_status()
             
             # For snapshot command, return the raw binary data
-            if cmd == "Snap":
+            if url_params.get("cmd") == "Snap":
                 return response.content
             
             # For other commands, parse as JSON
@@ -100,7 +93,9 @@ class ReolinkAPI:
         Returns:
             dict: Device information
         """
-        return self._make_request("GetDevInfo")
+        url_params = {"cmd": "GetDevInfo", "token": self.token}
+        request_data = [{"cmd": "GetDevInfo"}]
+        return self._make_request(url_params, request_data)
     
     def get_ability_info(self) -> dict:
         """
@@ -109,7 +104,9 @@ class ReolinkAPI:
         Returns:
             dict: Device information
         """
-        return self._make_request("GetAbility")
+        url_params = {"cmd": "GetAbility", "token": self.token}
+        request_data = [{"cmd": "GetAbility"}]
+        return self._make_request(url_params, request_data)
     
     def get_network_info(self) -> dict:
         """
@@ -118,7 +115,9 @@ class ReolinkAPI:
         Returns:
             dict: Network information
         """
-        return self._make_request("GetNetPort")
+        url_params = {"cmd": "GetNetPort", "token": self.token}
+        request_data = [{"cmd": "GetNetPort"}]
+        return self._make_request(url_params, request_data)
     
     def make_snapshot(self) -> bytes:
         """
@@ -128,25 +127,114 @@ class ReolinkAPI:
             bytes: Binary image data
         """
         length = 10
-        param_dict = dict()
-        param_dict["channel"] = 0
-        param_dict["rs"] = "".join(random.choices(string.ascii_letters + string.digits, k=length))
-        return self._make_request("Snap", param_dict)
+        url_params = {
+            "cmd": "Snap",
+            "token": self.token,
+            "channel": "0",
+            "rs": "".join(random.choices(string.ascii_letters + string.digits, k=length))
+        }
+        request_data = [{"cmd": "Snap", "channel": 0}]
+        return self._make_request(url_params, request_data)
+
+    def get_motion_state(self) -> dict:
+        """
+        Get the current motion detection state from the camera.
+        
+        Returns:
+            dict: Motion detection state information including:
+                - Motion detection status
+                - Sensitivity settings
+                - Detection areas
+                - Schedule settings
+        """
+        url_params = {"cmd": "GetMdState", "token": self.token}
+        request_data = [{"cmd": "GetMdState"}]
+        return self._make_request(url_params, request_data)
+
+    def get_ai_state(self) -> dict:
+        """
+        Get the current AI detection state from the camera.
+        
+        Returns:
+            dict: AI detection state information including:
+                - AI detection status
+                - Detection types (person, vehicle, pet, etc.)
+                - Sensitivity settings
+                - Detection areas
+        """
+        url_params = {"cmd": "GetAiState", "token": self.token}
+        request_data = [{"cmd": "GetAiState"}]
+        return self._make_request(url_params, request_data)
+
+    def set_ai_config(self, config: dict) -> dict:
+        """
+        Configure AI detection settings on the camera.
+        
+        Args:
+            config (dict): Configuration parameters including:
+                - enable (bool): Enable/disable AI detection
+                - types (list): List of detection types to enable
+                - sensitivity (int): Detection sensitivity level
+                - areas (list): Detection areas configuration
+        
+        Returns:
+            dict: Response from the camera indicating success or failure
+        """
+        url_params = {"cmd": "SetAiCfg", "token": self.token}
+        request_data = [{"cmd": "SetAiCfg", "param": config}]
+        return self._make_request(url_params, request_data)
+
+    def send_heart_beat(self) -> dict:
+        """
+        Send a heartbeat signal to keep the connection alive with the camera.
+        This should be called periodically to maintain the session.
+        
+        Returns:
+            dict: Response from the camera indicating the connection is alive
+        """
+        url_params = {"cmd": "HeartBeat", "token": self.token}
+        request_data = [{"cmd": "HeartBeat"}]
+        return self._make_request(url_params, request_data)
+
+    def set_ptz_ctrl(self, command: str, channel: int = 0, speed: int = 1) -> dict:
+        """
+        Control the PTZ (Pan-Tilt-Zoom) functionality of the camera.
+        
+        Args:
+            command (str): PTZ command to execute (e.g., "Left", "Right", "Up", "Down", "ZoomIn", "ZoomOut")
+            channel (int, optional): Camera channel to control. Defaults to 0.
+            speed (int, optional): Movement speed (1-8). Defaults to 1.
+        
+        Returns:
+            dict: Response from the camera indicating success or failure
+        """
+        url_params = {
+            "cmd": "PtzCtrl",
+            "token": self.token
+        }
+        request_data = [{"cmd": "PtzCtrl", "param": {"channel": channel, "op": command, "speed": speed}}]
+        return self._make_request(url_params, request_data)
 
     def logout(self) -> None:
         """
         Logout from the camera and clear the session.
         """
         if self.token:
-            self._make_request("Logout")
+            url_params = {"cmd": "Logout", "token": self.token}
+            request_data = [{"cmd": "Logout"}]
+            self._make_request(url_params, request_data)
             self.token = None
-            self.session.close() 
+            self.session.close()
 
 if __name__ == "__main__":
     reolink = ReolinkAPI("192.168.1.100", "admin", "")
     print(reolink.get_device_info())
     print(reolink.get_network_info())
     print(reolink.get_ability_info())
+    print(reolink.get_motion_state())
+    print(reolink.get_ai_state())
+    print(reolink.send_heart_beat())
+    print(reolink.set_ptz_ctrl(command="Left", speed=3))
     
     # Save snapshot to a file
     snapshot_data = reolink.make_snapshot()
