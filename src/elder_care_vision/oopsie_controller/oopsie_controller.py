@@ -114,6 +114,7 @@ class OopsieController:
         frame_timestamps: List to store timestamps for each frame
         max_history_frames: Number of frames to keep in history
         frame_interval: Seconds between frames (6 frames in 3 seconds)
+        last_frame_time: Track last frame time
     """
     
     def __init__(self):
@@ -302,11 +303,12 @@ class OopsieController:
         # Track last values to avoid unnecessary updates
         self.last_values = {metric: None for metric in metrics}
         
-        # Initialize frame history
+        # Initialize frame history with more precise timing
         self.frame_history = []  # Store last 6 frames
         self.frame_timestamps = []  # Store timestamps for each frame
         self.max_history_frames = 6  # Number of frames to keep in history
         self.frame_interval = 0.5  # Seconds between frames (6 frames in 3 seconds)
+        self.last_frame_time = 0  # Track last frame time
         
         logger.info("OopsieController initialized and ready for fall detection")
         
@@ -316,7 +318,18 @@ class OopsieController:
             # Create tkinter window
             self.root = tk.Tk()
             self.root.title("Fall Detection Monitor")
-            self.root.geometry("880x880")  # 10% bigger window
+            
+            # Calculate window size based on plot dimensions
+            # Threshold plots: 5.6x4.2 inches at 100 DPI = 560x420 pixels
+            # Detection plot: 5.6x2.1 inches at 100 DPI = 560x210 pixels
+            # Total height: 420 + 210 = 630 pixels
+            # Add 20 pixels padding
+            window_width = 1120  # 560 * 2 for plots and sequence
+            window_height = 650  # 630 + 20 padding
+            
+            # Set window size and make it non-resizable
+            self.root.geometry(f"{window_width}x{window_height}")
+            self.root.resizable(False, False)
             self.root.configure(bg='#1e1e1e')
             
             # Create main frame
@@ -324,18 +337,18 @@ class OopsieController:
             main_frame.pack(fill=tk.BOTH, expand=True)
             
             # Create left frame for plots
-            left_frame = tk.Frame(main_frame, bg='#1e1e1e')
+            left_frame = tk.Frame(main_frame, bg='#1e1e1e', width=560)
             left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             
             # Create right frame for sequence
-            right_frame = tk.Frame(main_frame, bg='#1e1e1e')
+            right_frame = tk.Frame(main_frame, bg='#1e1e1e', width=560)
             right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
             
             # Create plot frames in left frame
-            threshold_frame = tk.Frame(left_frame, bg='#1e1e1e')
+            threshold_frame = tk.Frame(left_frame, bg='#1e1e1e', height=420)
             threshold_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
             
-            detection_frame = tk.Frame(left_frame, bg='#1e1e1e')
+            detection_frame = tk.Frame(left_frame, bg='#1e1e1e', height=210)
             detection_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
             
             # Create sequence frame in right frame
@@ -390,48 +403,57 @@ class OopsieController:
             self.detection_label.configure(image=detection_photo)
             self.detection_label.image = detection_photo
             
-            # Update sequence image if available
+            # Update sequence image if available and has changed
             if hasattr(self, 'last_sequence_path') and Path(self.last_sequence_path).exists():
-                sequence_image = Image.open(self.last_sequence_path)
-                
-                # Calculate target size maintaining aspect ratio
-                target_width = 440  # Half of window width
-                target_height = 880  # Full window height
-                
-                # Get original dimensions
-                orig_width, orig_height = sequence_image.size
-                
-                # Calculate aspect ratios
-                target_ratio = target_width / target_height
-                orig_ratio = orig_width / orig_height
-                
-                # Calculate new dimensions maintaining aspect ratio
-                if orig_ratio > target_ratio:
-                    # Image is wider than target ratio
-                    new_width = target_width
-                    new_height = int(target_width / orig_ratio)
-                else:
-                    # Image is taller than target ratio
-                    new_height = target_height
-                    new_width = int(target_height * orig_ratio)
-                
-                # Resize image maintaining aspect ratio
-                sequence_image = sequence_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                
-                # Create a new image with black background
-                final_image = Image.new('RGB', (target_width, target_height), (30, 30, 30))
-                
-                # Calculate position to center the image
-                x = (target_width - new_width) // 2
-                y = (target_height - new_height) // 2
-                
-                # Paste the resized image onto the center of the black background
-                final_image.paste(sequence_image, (x, y))
-                
-                # Convert to PhotoImage
-                sequence_photo = ImageTk.PhotoImage(final_image)
-                self.sequence_label.configure(image=sequence_photo)
-                self.sequence_label.image = sequence_photo
+                try:
+                    # Check if file has been modified since last update
+                    current_mtime = Path(self.last_sequence_path).stat().st_mtime
+                    if not hasattr(self, 'last_sequence_mtime') or current_mtime > self.last_sequence_mtime:
+                        sequence_image = Image.open(self.last_sequence_path)
+                        
+                        # Calculate target size maintaining aspect ratio
+                        target_width = 560  # Half of window width
+                        target_height = 630  # Total height of plots
+                        
+                        # Get original dimensions
+                        orig_width, orig_height = sequence_image.size
+                        
+                        # Calculate aspect ratios
+                        target_ratio = target_width / target_height
+                        orig_ratio = orig_width / orig_height
+                        
+                        # Calculate new dimensions maintaining aspect ratio
+                        if orig_ratio > target_ratio:
+                            # Image is wider than target ratio
+                            new_width = target_width
+                            new_height = int(target_width / orig_ratio)
+                        else:
+                            # Image is taller than target ratio
+                            new_height = target_height
+                            new_width = int(target_height * orig_ratio)
+                        
+                        # Resize image maintaining aspect ratio
+                        sequence_image = sequence_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                        
+                        # Create a new image with black background
+                        final_image = Image.new('RGB', (target_width, target_height), (30, 30, 30))
+                        
+                        # Calculate position to center the image
+                        x = (target_width - new_width) // 2
+                        y = (target_height - new_height) // 2
+                        
+                        # Paste the resized image onto the center of the black background
+                        final_image.paste(sequence_image, (x, y))
+                        
+                        # Convert to PhotoImage
+                        sequence_photo = ImageTk.PhotoImage(final_image)
+                        self.sequence_label.configure(image=sequence_photo)
+                        self.sequence_label.image = sequence_photo
+                        
+                        # Update last modification time
+                        self.last_sequence_mtime = current_mtime
+                except Exception as e:
+                    logger.error(f"Error updating sequence image: {str(e)}")
             
             # Schedule next update
             if hasattr(self, 'root'):
@@ -830,38 +852,52 @@ class OopsieController:
         if len(self.frame_history) < self.max_history_frames:
             return None
             
-        # Calculate dimensions for the sequence image
-        frame_height, frame_width = self.frame_history[0].shape[:2]
-        sequence_width = frame_width * 3  # 3 frames per row
-        sequence_height = frame_height * 2  # 2 rows
-        
-        # Create blank image for the sequence
-        sequence = np.zeros((sequence_height, sequence_width, 3), dtype=np.uint8)
-        
-        # Add frames to sequence with timestamps
-        for i, (frame, timestamp) in enumerate(zip(self.frame_history, self.frame_timestamps)):
-            row = i // 3
-            col = i % 3
-            y_start = row * frame_height
-            x_start = col * frame_width
+        try:
+            # Calculate dimensions for the sequence image
+            frame_height, frame_width = self.frame_history[0].shape[:2]
+            sequence_width = frame_width * 3  # 3 frames per row
+            sequence_height = frame_height * 2  # 2 rows
             
-            # Add frame to sequence
-            sequence[y_start:y_start + frame_height, x_start:x_start + frame_width] = frame
+            # Create blank image for the sequence
+            sequence = np.zeros((sequence_height, sequence_width, 3), dtype=np.uint8)
             
-            # Add timestamp
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.5
-            thickness = 1
-            timestamp_str = f"t-{3 - (i * self.frame_interval):.1f}s"
-            cv2.putText(sequence, timestamp_str, 
-                       (x_start + 10, y_start + frame_height - 10),
-                       font, font_scale, (255, 255, 255), thickness)
-        
-        # Save sequence image
-        sequence_path = "temp_frame_sequence.jpg"
-        cv2.imwrite(sequence_path, sequence)
-        self.last_sequence_path = sequence_path  # Store path for display
-        return sequence_path
+            # Add frames to sequence with timestamps
+            for i, (frame, timestamp) in enumerate(zip(self.frame_history, self.frame_timestamps)):
+                row = i // 3
+                col = i % 3
+                y_start = row * frame_height
+                x_start = col * frame_width
+                
+                # Add frame to sequence
+                sequence[y_start:y_start + frame_height, x_start:x_start + frame_width] = frame
+                
+                # Add timestamp with milliseconds
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.5
+                thickness = 1
+                time_diff = self.frame_timestamps[-1] - timestamp
+                timestamp_str = f"t-{time_diff:.3f}s"
+                cv2.putText(sequence, timestamp_str, 
+                           (x_start + 10, y_start + frame_height - 10),
+                           font, font_scale, (255, 255, 255), thickness)
+            
+            # Save sequence image with unique filename
+            sequence_path = f"temp_frame_sequence_{int(time.time()*1000)}.jpg"
+            cv2.imwrite(sequence_path, sequence)
+            
+            # Clean up old sequence file if it exists
+            if hasattr(self, 'last_sequence_path') and Path(self.last_sequence_path).exists():
+                try:
+                    Path(self.last_sequence_path).unlink()
+                except Exception as e:
+                    logger.error(f"Error cleaning up old sequence file: {str(e)}")
+            
+            self.last_sequence_path = sequence_path  # Store path for display
+            return sequence_path
+            
+        except Exception as e:
+            logger.error(f"Error creating frame sequence: {str(e)}")
+            return None
 
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, bool]:
         """Process a single frame for fall detection and verification."""
@@ -1136,15 +1172,24 @@ class OopsieController:
         self.ax_detection.relim()
         self.ax_detection.autoscale_view()
         
-        # Update frame history
+        # Update frame history with precise timing
         current_time = time.time()
-        self.frame_history.append(frame.copy())
-        self.frame_timestamps.append(current_time)
         
-        # Remove old frames if needed
-        while len(self.frame_history) > self.max_history_frames:
-            self.frame_history.pop(0)
-            self.frame_timestamps.pop(0)
+        # Only add frame if enough time has passed since last frame
+        if current_time - self.last_frame_time >= self.frame_interval:
+            # Add new frame to history
+            self.frame_history.append(frame.copy())
+            self.frame_timestamps.append(current_time)
+            self.last_frame_time = current_time
+            
+            # Remove old frames if needed
+            while len(self.frame_history) > self.max_history_frames:
+                self.frame_history.pop(0)
+                self.frame_timestamps.pop(0)
+            
+            # Create sequence image if we have enough frames
+            if len(self.frame_history) == self.max_history_frames:
+                self._create_frame_sequence()
         
         return frame, self.fall_confirmed
         
