@@ -15,7 +15,11 @@ import json
 from colorama import init, Fore, Style
 import matplotlib.pyplot as plt
 import matplotlib
-matplotlib.use('TkAgg')  # Use TkAgg backend for interactive plots
+matplotlib.use('Agg')  # Use non-interactive backend
+import tkinter as tk
+from PIL import Image, ImageTk
+import threading
+import io
 
 from .oopsie_alert.oopsie_alert import FallDetector
 from .oopsie_nanny.oopsie_nanny import ImageRecognizer
@@ -68,6 +72,7 @@ class OopsieController:
         fig: Matplotlib figure for threshold history plots
         axs: Matplotlib axes for threshold history plots
         plot_colors: Colors for threshold history plots
+        plot_queue: Queue for thread-safe communication
     """
     
     def __init__(self):
@@ -126,7 +131,6 @@ class OopsieController:
         self.max_history_length = 50  # Keep last 50 values
         
         # Initialize matplotlib figure
-        plt.ion()  # Turn on interactive mode
         self.fig, self.axs = plt.subplots(2, 2, figsize=(12, 8))
         self.fig.suptitle("Threshold History", fontsize=16)
         self.fig.patch.set_facecolor('#1e1e1e')  # Dark background
@@ -157,8 +161,138 @@ class OopsieController:
             "hip_ratio": "#00ff00"  # Green
         }
         
+        # Initialize plot lines and points
+        self.plot_lines = {}
+        self.plot_points = {}
+        self.min_lines = {}
+        self.max_lines = {}
+        self.text_boxes = {}
+        
+        # Initialize plot elements
+        metrics = {
+            "tilt": (0, 0),
+            "position": (0, 1),
+            "shoulder_ratio": (1, 0),
+            "hip_ratio": (1, 1)
+        }
+        
+        for metric, (row, col) in metrics.items():
+            ax = self.axs[row, col]
+            # Create initial empty line
+            self.plot_lines[metric], = ax.plot([], [], color=self.plot_colors[metric], linewidth=2)
+            # Create initial point
+            self.plot_points[metric], = ax.plot([], [], 'o', color=self.plot_colors[metric], markersize=8)
+            # Create min/max lines
+            self.min_lines[metric] = ax.axhline(y=0, color='white', linestyle='--', alpha=0.3)
+            self.max_lines[metric] = ax.axhline(y=0, color='white', linestyle='--', alpha=0.3)
+            # Create text box
+            self.text_boxes[metric] = ax.text(0.02, 0.98, "", transform=ax.transAxes, color='white',
+                                            verticalalignment='top', bbox=dict(facecolor='black', alpha=0.5))
+        
+        # Set initial layout
+        plt.tight_layout()
+        
+        # Create tkinter window in a separate thread
+        self.plot_thread = threading.Thread(target=self._run_plot_window, daemon=True)
+        self.plot_thread.start()
+        
+        # Track last values to avoid unnecessary updates
+        self.last_values = {metric: None for metric in metrics}
+        
         logger.info("OopsieController initialized and ready for fall detection")
         
+    def _run_plot_window(self) -> None:
+        """Run the tkinter window in a separate thread."""
+        try:
+            # Create tkinter window
+            self.root = tk.Tk()
+            self.root.title("Threshold History")
+            self.root.geometry("1200x800")
+            self.root.configure(bg='#1e1e1e')
+            
+            # Create label for plot image
+            self.plot_label = tk.Label(self.root, bg='#1e1e1e')
+            self.plot_label.pack(fill=tk.BOTH, expand=True)
+            
+            # Start periodic update
+            self._update_plot()
+            
+            # Start the tkinter event loop
+            self.root.mainloop()
+            
+        except Exception as e:
+            logger.error(f"Error in plot window thread: {str(e)}")
+            
+    def _update_plot(self) -> None:
+        """Update the plot image in the tkinter window."""
+        try:
+            # Save plot to memory buffer
+            buf = io.BytesIO()
+            self.fig.savefig(buf, format='png', facecolor='#1e1e1e', edgecolor='none')
+            buf.seek(0)
+            
+            # Convert to PIL Image and then to PhotoImage
+            image = Image.open(buf)
+            photo = ImageTk.PhotoImage(image)
+            
+            # Update the label
+            self.plot_label.configure(image=photo)
+            self.plot_label.image = photo  # Keep a reference
+            
+            # Schedule next update
+            if hasattr(self, 'root'):
+                self.root.after(100, self._update_plot)
+            
+        except Exception as e:
+            logger.error(f"Error updating plot: {str(e)}")
+            
+    def _draw_threshold_history(self) -> None:
+        """Update the matplotlib plots with current threshold history."""
+        try:
+            # Only update every 5 frames to reduce overhead
+            self.update_counter += 1
+            if self.update_counter % 5 != 0:
+                return
+                
+            # Check if any values have changed
+            values_changed = False
+            for metric, history in self.threshold_history.items():
+                if history and history[-1] != self.last_values[metric]:
+                    values_changed = True
+                    self.last_values[metric] = history[-1]
+            
+            if not values_changed:
+                return
+                
+            # Update plots for each metric
+            for metric, history in self.threshold_history.items():
+                if not history:
+                    continue
+                    
+                # Update line data
+                x_data = list(range(len(history)))
+                self.plot_lines[metric].set_data(x_data, history)
+                
+                # Update point
+                self.plot_points[metric].set_data([x_data[-1]], [history[-1]])
+                
+                # Update min/max lines
+                min_val = min(history)
+                max_val = max(history)
+                self.min_lines[metric].set_ydata([min_val, min_val])
+                self.max_lines[metric].set_ydata([max_val, max_val])
+                
+                # Update text
+                self.text_boxes[metric].set_text(f"Current: {history[-1]:.2f}")
+                
+                # Adjust axes limits
+                ax = self.plot_lines[metric].axes
+                ax.relim()
+                ax.autoscale_view()
+            
+        except Exception as e:
+            logger.error(f"Error updating threshold history plots: {str(e)}")
+            
     def draw_poi(self, frame: np.ndarray, landmarks) -> np.ndarray:
         """Draw Point of Interest markers and calculation points on detected persons.
         
@@ -459,64 +593,6 @@ class OopsieController:
             logger.error(f"Failed to apply threshold adjustments: {str(e)}")
             logger.error(f"Adjustments attempted: {json.dumps(adjustments, indent=2)}")
             logger.error(f"Current thresholds: {json.dumps(self.thresholds, indent=2)}")
-            
-    def _draw_threshold_history(self) -> None:
-        """Update the matplotlib plots with current threshold history."""
-        try:
-            # Clear previous plots
-            for ax in self.axs.flat:
-                ax.clear()
-                ax.set_facecolor('#2d2d2d')
-                ax.tick_params(colors='white')
-                ax.spines['bottom'].set_color('white')
-                ax.spines['top'].set_color('white')
-                ax.spines['left'].set_color('white')
-                ax.spines['right'].set_color('white')
-                ax.xaxis.label.set_color('white')
-                ax.yaxis.label.set_color('white')
-            
-            # Update plots for each metric
-            metrics = {
-                "tilt": (0, 0),
-                "position": (0, 1),
-                "shoulder_ratio": (1, 0),
-                "hip_ratio": (1, 1)
-            }
-            
-            for metric, (row, col) in metrics.items():
-                history = self.threshold_history[metric]
-                if not history:
-                    continue
-                    
-                ax = self.axs[row, col]
-                ax.set_title(f"{metric.replace('_', ' ').title()}", color='white')
-                
-                # Plot the line
-                ax.plot(history, color=self.plot_colors[metric], linewidth=2)
-                
-                # Add current value point
-                if history:
-                    ax.plot(len(history)-1, history[-1], 'o', color=self.plot_colors[metric], markersize=8)
-                
-                # Add min/max lines
-                min_val = min(history)
-                max_val = max(history)
-                ax.axhline(y=min_val, color='white', linestyle='--', alpha=0.3)
-                ax.axhline(y=max_val, color='white', linestyle='--', alpha=0.3)
-                
-                # Add current value text
-                if history:
-                    ax.text(0.02, 0.98, f"Current: {history[-1]:.2f}",
-                            transform=ax.transAxes, color='white',
-                            verticalalignment='top', bbox=dict(facecolor='black', alpha=0.5))
-            
-            # Adjust layout and update the plot
-            plt.tight_layout()
-            plt.draw()
-            plt.pause(0.001)  # Small pause to allow the plot to update
-            
-        except Exception as e:
-            logger.error(f"Error updating threshold history plots: {str(e)}")
             
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, bool]:
         """Process a single frame for fall detection and verification.
