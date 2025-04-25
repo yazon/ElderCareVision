@@ -3,6 +3,8 @@ from typing import Optional
 import json
 import random
 import string
+import time
+from datetime import datetime
 
 class ReolinkAPI:
     def __init__(self, ip: str, username: str, password: str):
@@ -181,7 +183,7 @@ class ReolinkAPI:
             dict: Response from the camera indicating success or failure
         """
         url_params = {"cmd": "SetAiCfg", "token": self.token}
-        request_data = [{"cmd": "SetAiCfg", "param": config}]
+        request_data = [{"cmd": "SetAiCfg", "action":0,"param": config, "channel":0}]
         return self._make_request(url_params, request_data)
 
     def send_heart_beat(self) -> dict:
@@ -226,6 +228,43 @@ class ReolinkAPI:
             self.token = None
             self.session.close()
 
+
+def camera_patrol(reolink, patrol_time):
+    start_time = time.time()
+    direction = "Right"
+    while(time.time() - start_time < patrol_time):
+        for i in range(10):
+            reolink.set_ptz_ctrl(command=direction, speed=3)
+            time.sleep(.2)
+            reolink.set_ptz_ctrl(command="Stop")
+            time.sleep(1)
+            print(reolink.get_motion_state()[0]['value'])
+            print(reolink.get_ai_state()[0]['value'])
+        
+            # Save snapshot with timestamp including milliseconds
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # Last 3 digits of microseconds = milliseconds
+            snapshot_data = reolink.make_snapshot()
+            filename = f"snapshot_{timestamp}.png"
+            st_time = time.time()
+            with open(filename, "wb") as f:
+                f.write(snapshot_data)
+            print(f"time spend to take a picture {time.time() - st_time}")
+        if direction == 'Right':
+            direction = 'Left'
+        else:
+            direction = "Right"
+
+def camera_burst_snapshot(reolink, burst):
+    print("Save burst")
+    for _ in range(burst):
+        # Save snapshot with timestamp including milliseconds
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # Last 3 digits of microseconds = milliseconds
+        snapshot_data = reolink.make_snapshot()
+        filename = f"snapshot_{timestamp}.png"
+        st_time = time.time()
+        with open(filename, "wb") as f:
+            f.write(snapshot_data)
+    
 if __name__ == "__main__":
     reolink = ReolinkAPI("192.168.1.100", "admin", "")
     print(reolink.get_device_info())
@@ -234,11 +273,26 @@ if __name__ == "__main__":
     print(reolink.get_motion_state())
     print(reolink.get_ai_state())
     print(reolink.send_heart_beat())
+
     print(reolink.set_ptz_ctrl(command="Left", speed=3))
-    
-    # Save snapshot to a file
-    snapshot_data = reolink.make_snapshot()
-    with open("snapshot.jpg", "wb") as f:
-        f.write(snapshot_data)
-    
+                
+    time.sleep(1)
+    ai_config_params = {"aiTrack": 1,
+        "trackType": {
+            "dog_cat" : 0,
+            "face" : 1,
+            "people" : 1,
+            "vehicle" : 0},
+        "AiDetectType": {
+            "people": 1,
+            "vehicle": 0,
+            "dog_cat": 0,
+            "face": 1
+        }}
+    print(reolink.set_ai_config(ai_config_params))
+
+    # camera_patrol(reolink, 1)
+
+    camera_burst_snapshot(reolink, 100)
+
     reolink.logout()
