@@ -37,7 +37,7 @@ class ColoredFormatter(logging.Formatter):
 
 # Configure logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler()
 handler.setFormatter(ColoredFormatter("%(asctime)s - %(levelname)s - %(message)s"))
 logger.addHandler(handler)
@@ -358,8 +358,11 @@ class OopsieController:
                 
             # Check update frequency
             self.update_counter += 1
+            logger.debug(f"Update counter: {self.update_counter}/{self.thresholds['auto_update']['update_frequency']}")
             if self.update_counter < self.thresholds["auto_update"]["update_frequency"]:
+                logger.debug("Skipping update due to frequency check")
                 return
+            logger.debug("Update frequency reached, applying adjustments")
             self.update_counter = 0
             
             # Log the current configuration before changes
@@ -641,6 +644,10 @@ class OopsieController:
                                     
                                     # Remove any newlines and extra spaces
                                     adjustment_text = " ".join(adjustment_text.split())
+                                    
+                                    # Debug log the extracted JSON
+                                    logger.debug(f"Extracted JSON: {adjustment_text}")
+                                    
                                     # Parse the JSON
                                     adjustments = json.loads(adjustment_text)
                                     
@@ -650,6 +657,9 @@ class OopsieController:
                                         if "head_detection" not in adjustments:
                                             adjustments["head_detection"] = {}
                                         adjustments["head_detection"]["fall_threshold"] = adjustments.pop("fall_threshold")
+                                    
+                                    # Log the parsed adjustments
+                                    logger.debug(f"Parsed adjustments: {json.dumps(adjustments, indent=2)}")
                                     
                                     # Apply adjustments with auto-update checks
                                     self._apply_threshold_adjustments(adjustments)

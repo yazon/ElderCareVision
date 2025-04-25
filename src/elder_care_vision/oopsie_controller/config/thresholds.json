@@ -1,15 +1,15 @@
 {
     "head_detection": {
         "tilt_threshold": 2.0,
-        "position_threshold": 0.3,
-        "shoulder_ratio_threshold": 2.0,
-        "hip_ratio_threshold": 1.5
+        "position_threshold": 0.36300000000000004,
+        "shoulder_ratio_threshold": 1.9800000000000002,
+        "hip_ratio_threshold": 1.3365000000000002
     },
     "pose_detection": {
         "movement_threshold": 0.15
     },
     "llm": {
-        "cooldown_seconds": 5
+        "cooldown_seconds": 2
     },
     "warning": {
         "frames": 5
@@ -17,7 +17,7 @@
     "auto_update": {
         "enabled": true,
         "min_confidence": 0.8,
-        "max_adjustment": 0.2,
-        "update_frequency": 10
+        "max_adjustment": 0.1,
+        "update_frequency": 1
     }
-} 
+}
