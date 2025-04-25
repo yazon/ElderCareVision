@@ -1,5 +1,6 @@
 import logging
 import time
+import base64
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
@@ -31,6 +32,7 @@ class CoordinatorContext:
     image_data: dict | None = field(default=None)  # Data from fall detection
     psa_confidence: float | None = field(default=None)  # Confidence from person state analyzer
     health_status: str | None = field(default=None)  # Health status from health status inquiry
+    image_base64: str | None = field(default=None)  # Image base64 from fall detection
     # Add other shared data fields as needed
 
 
@@ -49,6 +51,9 @@ class Coordinator:
         self.person_state_analyzer_agent = PersonStateAnalyzerAgent()
         self.health_status_inquiry_agent = HealthStatusInquiryAgent()
         self.emergency_call_tool = emergency_call_tool
+        # TODO: remove this
+        img = open("static/Elderly-Falls.jpg", "rb").read()
+        self.context.image_base64 = base64.b64encode(img).decode("utf-8")
 
     @property
     def current_state(self) -> str:
@@ -128,6 +133,6 @@ class Coordinator:
         """Processes the calling emergency state."""
         logger.info("Processing calling emergency state")
         # TODO: make it in a thread
-        await self.emergency_call_tool()
+        await self.emergency_call_tool(self.context.image_base64)
         time.sleep(10)
         self.transition_to_state(CoordinatorState.START)

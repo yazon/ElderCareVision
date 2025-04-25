@@ -17,7 +17,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def EmergencyCall(imageBase64: str) -> bool:
+async def emergency_call_tool(imageBase64: str) -> bool:
     """Process an emergency call with image analysis and audio notification.
 
     Args:
