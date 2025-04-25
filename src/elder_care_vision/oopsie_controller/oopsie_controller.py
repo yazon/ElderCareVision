@@ -1152,3 +1152,28 @@ class OopsieController:
             raise ValueError(f"Could not read image: {image_path}")
             
         return self.process_frame(frame)
+
+    def _process_threshold_adjustment(self, analysis: str) -> None:
+        """Process threshold adjustments from LLM analysis.
+        
+        Args:
+            analysis: The analysis string containing threshold adjustments
+        """
+        try:
+            # Extract the JSON part between THRESHOLD_ADJUSTMENT: and the next newline
+            start_idx = analysis.find("THRESHOLD_ADJUSTMENT:") + len("THRESHOLD_ADJUSTMENT:")
+            json_str = analysis[start_idx:].strip()
+            
+            # Parse the JSON adjustments
+            adjustments = json.loads(json_str)
+            logger.info(f"Processing threshold adjustments: {json.dumps(adjustments, indent=2)}")
+            
+            # Apply the adjustments
+            self._apply_threshold_adjustments(adjustments)
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse threshold adjustments: {str(e)}")
+            logger.error(f"Raw adjustment string: {json_str}")
+        except Exception as e:
+            logger.error(f"Error processing threshold adjustments: {str(e)}")
+            logger.error(f"Analysis text: {analysis}")
