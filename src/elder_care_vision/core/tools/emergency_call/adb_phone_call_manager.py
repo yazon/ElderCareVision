@@ -2,8 +2,11 @@
 
 import logging
 import time
+import io
 from enum import Enum
 
+import sounddevice as sd
+import soundfile as sf
 from ppadb.client import Client as AdbClient
 
 from elder_care_vision.config.logging_config import setup_logging
@@ -99,3 +102,30 @@ class ADBPhoneCallManager:
             time.sleep(1)
         logger.info("Call answer timeout reached.")
         return False
+
+    def play_audio(self, audio_data: bytes) -> bool:
+        """Play audio on the computer using sounddevice and soundfile.
+
+        Args:
+            audio_data: The audio data in bytes format (e.g., MP3, WAV)
+
+        Returns:
+            bool: True if audio played successfully, False otherwise
+        """
+        try:
+            # Create a file-like object from the audio data
+            audio_file = io.BytesIO(audio_data)
+
+            # Read the audio data using soundfile
+            data, samplerate = sf.read(audio_file)
+
+            # Play the audio using sounddevice
+            sd.play(data, samplerate)
+            sd.wait()  # Wait until the audio is finished playing
+
+            logger.info("Audio played successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to play audio: {e}")
+            return False
