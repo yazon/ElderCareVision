@@ -1,0 +1,25 @@
+{
+    "agent": {
+        "coordinator": {
+            "model": "gpt-4.1",
+            "temperature": 0.7
+        },
+        "health_status_inquiry": {
+            "model": "gpt-4.1",
+            "temperature": 0.7
+        },
+        "person_state_analyzer": {
+            "model": "o4-mini",
+            "temperature": 0.7,
+            "confidence_threshold_1": 50,
+            "confidence_threshold_2": 80,
+            "health_statuses": ["healthy", "not_healthy", "needs_help"]
+        }
+    },
+    "tool": {
+        "emergency_alert": {
+            "model": "gpt-4.1",
+            "temperature": 0.7
+        }
+    }
+}
