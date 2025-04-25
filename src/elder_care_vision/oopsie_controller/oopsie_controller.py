@@ -60,18 +60,20 @@ class TkinterLogHandler(logging.Handler):
 
 # Configure logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)  # This sets the base log level
 
 # Create queue for log messages
 log_queue = queue.Queue()
 
-# Add console handler
+# Add console handler with DEBUG level
 console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)  # Console will show all messages
 console_handler.setFormatter(ColoredFormatter("%(asctime)s - %(levelname)s - %(message)s"))
 logger.addHandler(console_handler)
 
-# Add tkinter handler
+# Add tkinter handler with INFO level
 tk_handler = TkinterLogHandler(log_queue)
+tk_handler.setLevel(logging.INFO)  # Tkinter window will show INFO and above
 logger.addHandler(tk_handler)
 
 class OopsieController:
