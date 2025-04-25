@@ -262,6 +262,10 @@ class OopsieController:
             - The processed frame with any warnings
             - Boolean indicating if a fall was confirmed
         """
+        # Reduce frame size by 4x
+        height, width = frame.shape[:2]
+        frame = cv2.resize(frame, (width // 2, height // 2))
+        
         # Convert frame to RGB for pose detection
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
@@ -275,6 +279,7 @@ class OopsieController:
         # Check for potential fall
         if results.pose_landmarks:
             potential_fall = self.alert.detect_fall(results.pose_landmarks)
+            threshold_values = None  # Initialize threshold_values
             
             # Additional head-based fall detection with extremely conservative thresholds
             if not potential_fall:
@@ -309,19 +314,62 @@ class OopsieController:
                 # This makes it much harder to trigger accidentally
                 if (is_head_tilted and is_head_low and is_head_relative_low and is_head_near_hips):
                     potential_fall = True
-                    triggered_thresholds = []
-                    if is_head_tilted:
-                        triggered_thresholds.append(f"tilt ({head_to_nose_ratio:.2f} > {self.thresholds['head_detection']['tilt_threshold']})")
-                    if is_head_low:
-                        triggered_thresholds.append(f"position ({head_center_y:.2f} > {self.alert.fall_threshold + self.thresholds['head_detection']['position_threshold']:.2f})")
-                    if is_head_relative_low:
-                        triggered_thresholds.append(f"shoulder ratio ({head_to_shoulder_ratio:.2f} > {self.thresholds['head_detection']['shoulder_ratio_threshold']})")
-                    if is_head_near_hips:
-                        triggered_thresholds.append(f"hip ratio ({head_to_hip_ratio:.2f} < {self.thresholds['head_detection']['hip_ratio_threshold']})")
+                    threshold_values = {}  # Initialize threshold_values dictionary
                     
-                    logger.info(f"Potential fall detected based on head position. Triggered thresholds: {', '.join(triggered_thresholds)}")
+                    if is_head_tilted:
+                        threshold_values["tilt"] = {
+                            "current": head_to_nose_ratio,
+                            "threshold": self.thresholds["head_detection"]["tilt_threshold"]
+                        }
+                    if is_head_low:
+                        threshold_values["position"] = {
+                            "current": head_center_y,
+                            "threshold": self.alert.fall_threshold + self.thresholds["head_detection"]["position_threshold"]
+                        }
+                    if is_head_relative_low:
+                        threshold_values["shoulder_ratio"] = {
+                            "current": head_to_shoulder_ratio,
+                            "threshold": self.thresholds["head_detection"]["shoulder_ratio_threshold"]
+                        }
+                    if is_head_near_hips:
+                        threshold_values["hip_ratio"] = {
+                            "current": head_to_hip_ratio,
+                            "threshold": self.thresholds["head_detection"]["hip_ratio_threshold"]
+                        }
+                    
+                    logger.info(f"Potential fall detected based on head position. Triggered thresholds: {', '.join(threshold_values.keys())}")
                 else:
                     logger.debug(f"Head position normal: tilt={head_to_nose_ratio:.2f}, low={is_head_low}, relative={head_to_shoulder_ratio:.2f}, hip={head_to_hip_ratio:.2f}")
+                
+                # Draw threshold information on frame
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.4
+                thickness = 1
+                color = (0, 255, 0)  # Green for normal values
+                
+                # Draw current values
+                y_offset = 20
+                cv2.putText(frame, f"Tilt: {head_to_nose_ratio:.2f} / {self.thresholds['head_detection']['tilt_threshold']:.2f}", 
+                           (10, y_offset), font, font_scale, color, thickness)
+                y_offset += 20
+                cv2.putText(frame, f"Position: {head_center_y:.2f} / {self.alert.fall_threshold + self.thresholds['head_detection']['position_threshold']:.2f}", 
+                           (10, y_offset), font, font_scale, color, thickness)
+                y_offset += 20
+                cv2.putText(frame, f"Shoulder Ratio: {head_to_shoulder_ratio:.2f} / {self.thresholds['head_detection']['shoulder_ratio_threshold']:.2f}", 
+                           (10, y_offset), font, font_scale, color, thickness)
+                y_offset += 20
+                cv2.putText(frame, f"Hip Ratio: {head_to_hip_ratio:.2f} / {self.thresholds['head_detection']['hip_ratio_threshold']:.2f}", 
+                           (10, y_offset), font, font_scale, color, thickness)
+                
+                # Highlight exceeded thresholds in red
+                if is_head_tilted:
+                    cv2.putText(frame, "TILT EXCEEDED", (150, 20), font, font_scale, (0, 0, 255), thickness)
+                if is_head_low:
+                    cv2.putText(frame, "POSITION EXCEEDED", (150, 40), font, font_scale, (0, 0, 255), thickness)
+                if is_head_relative_low:
+                    cv2.putText(frame, "SHOULDER RATIO EXCEEDED", (150, 60), font, font_scale, (0, 0, 255), thickness)
+                if is_head_near_hips:
+                    cv2.putText(frame, "HIP RATIO EXCEEDED", (150, 80), font, font_scale, (0, 0, 255), thickness)
             
             if potential_fall and not self.fall_confirmed:
                 # Check cooldown and pose change
@@ -335,8 +383,8 @@ class OopsieController:
                     cv2.imwrite(temp_path, frame)
                     
                     try:
-                        # Get LLM analysis
-                        analysis = self.nanny.analyze_image(temp_path)
+                        # Get LLM analysis with threshold information
+                        analysis = self.nanny.analyze_image(temp_path, threshold_values)
                         logger.info(f"LLM Analysis: {analysis}")
                         
                         # Check if LLM confirms the fall
@@ -346,6 +394,29 @@ class OopsieController:
                             self.current_warning_frames = self.warning_frames
                         else:
                             logger.info("Fall not confirmed by LLM analysis")
+                            
+                            # Check for threshold adjustment suggestions
+                            if "THRESHOLD_ADJUSTMENT:" in analysis:
+                                try:
+                                    # Extract threshold adjustments from the analysis
+                                    adjustment_text = analysis.split("THRESHOLD_ADJUSTMENT:")[1].strip()
+                                    adjustments = json.loads(adjustment_text)
+                                    
+                                    # Update thresholds in config file
+                                    for category, values in adjustments.items():
+                                        if category in self.thresholds:
+                                            for key, value in values.items():
+                                                if key in self.thresholds[category]:
+                                                    self.thresholds[category][key] = value
+                                                    
+                                    # Save updated thresholds to config file
+                                    config_path = Path(__file__).parent / "config" / "thresholds.json"
+                                    with open(config_path, "w") as f:
+                                        json.dump(self.thresholds, f, indent=4)
+                                        
+                                    logger.info(f"Updated thresholds based on LLM feedback: {adjustments}")
+                                except Exception as e:
+                                    logger.error(f"Failed to process threshold adjustments: {str(e)}")
                     except Exception as e:
                         logger.error(f"Error during LLM analysis: {str(e)}")
                     finally:

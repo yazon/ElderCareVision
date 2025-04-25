@@ -65,45 +65,59 @@ class ImageRecognizer:
             logger.error(f"Error encoding image {image_path}: {str(e)}")
             raise
             
-    def analyze_image(self, image_path: str) -> str:
-        """Analyze an image using OpenAI's vision capabilities.
+    def analyze_image(self, image_path: str, threshold_values: Optional[dict] = None) -> str:
+        """Analyze an image for potential falls using OpenAI's API.
         
         Args:
             image_path: Path to the image file to analyze
+            threshold_values: Dictionary containing threshold information that triggered the detection
             
         Returns:
-            Analysis result as a string
+            Analysis result from the API
         """
+        # Encode the image
+        base64_image = self.encode_image(image_path)
+        
+        # Prepare the prompt with threshold information
+        threshold_info = ""
+        if threshold_values:
+            threshold_info = "\n\nThreshold Information:\n"
+            for metric, values in threshold_values.items():
+                threshold_info += f"- {metric}: Current value {values['current']:.2f} exceeded threshold {values['threshold']:.2f}\n"
+        
+        prompt = f"""You are an expert in fall detection and elderly care. Analyze this image for potential falls.
+Consider the following aspects:
+1. Body position and orientation
+2. Head position and tilt
+3. Overall posture and balance
+4. Environmental context
+5. Signs of distress or loss of control
+6. Whether the person appears to be in control of their movement
+7. Whether this appears to be a normal activity or an actual fall
+
+{threshold_info}
+
+Provide a detailed analysis of at least 100 words, considering all the above factors.
+Conclude with a clear verdict of either 'CONFIRMED FALL' or 'NO FALL'.
+
+If you believe the thresholds that triggered this detection are too sensitive or not sensitive enough,
+provide a THRESHOLD_ADJUSTMENT section with suggested new values in JSON format.
+For example:
+THRESHOLD_ADJUSTMENT:
+{{
+    "head_detection": {{
+        "tilt_threshold": 2.2,
+        "position_threshold": 0.35,
+        "shoulder_ratio_threshold": 2.1,
+        "hip_ratio_threshold": 1.4
+    }}
+}}
+"""
+        
+        logger.info("Sending request to OpenAI API")
         try:
-            # Verify the image file exists
-            if not os.path.exists(image_path):
-                raise FileNotFoundError(f"Image file not found: {image_path}")
-                
-            # Encode the image
-            base64_image = self.encode_image(image_path)
-            
-            # Prepare the API request
-            prompt = (
-                "Analyze this image for potential falls with a detailed 100-word analysis. "
-                "Consider the following aspects:\n"
-                "1. Body position and orientation\n"
-                "2. Head position relative to body\n"
-                "3. Overall posture and balance\n"
-                "4. Environmental context\n"
-                "5. Any signs of distress or instability\n\n"
-                "Provide a comprehensive analysis of at least 100 words explaining why this "
-                "situation may or may not constitute a fall. Include specific observations "
-                "about body angles, positions, and any contextual factors that support your "
-                "conclusion. End your analysis with a clear verdict: 'CONFIRMED FALL' if a "
-                "fall is definitely occurring, or 'NO FALL' if the situation appears normal."
-            )
-            
-            logger.info("Sending request to OpenAI API")
-            logger.debug(f"Request details: Image path={image_path}")
-            
-            # Make the API call using the new client interface
             response = self.client.chat.completions.create(
-                model="gpt-4.1-mini",  # Changed back to the correct model
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "user",
@@ -121,22 +135,18 @@ class ImageRecognizer:
                 max_tokens=500
             )
             
-            # Log the API response summary
             logger.info("Received response from OpenAI API")
-            logger.debug(f"API response: Model={response.model}, Tokens used={response.usage.total_tokens}")
-            
-            # Extract and log the analysis result
-            analysis = response.choices[0].message.content.strip()
+            analysis = response.choices[0].message.content
             logger.info(f"Analysis result: {analysis}")
             
-            # Check if the analysis confirms a fall
-            is_fall_confirmed = "CONFIRMED FALL" in analysis.upper()
-            logger.info(f"Fall confirmation status: {is_fall_confirmed}")
+            # Check if this is a fall
+            is_fall = "CONFIRMED FALL" in analysis.upper()
+            logger.info(f"Fall confirmation status: {is_fall}")
             
             return analysis
             
         except Exception as e:
-            logger.error(f"Error analyzing image {image_path}: {str(e)}")
+            logger.error(f"Error during API call: {str(e)}")
             raise
 
 def main():
