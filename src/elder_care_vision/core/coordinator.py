@@ -43,7 +43,6 @@ class Coordinator:
         self.config = load_config()
         self.confidence_threshold_1 = self.config["agent"]["person_state_analyzer"]["confidence_threshold_1"]
         self.confidence_threshold_2 = self.config["agent"]["person_state_analyzer"]["confidence_threshold_2"]
-        self.health_statuses = self.config["agent"]["person_state_analyzer"]["health_statuses"]
         self.context = CoordinatorContext()  # Initialize context
         print(f"Initializing state machine in state: {self.context.current_state.name}")
         self.fall_camera_detector_tool = fall_camera_detector_tool

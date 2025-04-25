@@ -11,7 +11,7 @@ from elder_care_vision.utils.utils import load_config
 logger = logging.getLogger(__name__)
 
 
-class BaseAgent(ABC):
+class BaseAgent(ABC):  # noqa: B024
     """Abstract base class for specialized agents."""
 
     PROMPT: str = "You are a helpful assistant."  # Default prompt, should be overridden
@@ -23,6 +23,7 @@ class BaseAgent(ABC):
         Args:
             agent_name: The specific name of the agent (e.g., "person_state_analyzer").
                         Used to load configuration.
+            output_type: The output type of the agent.
         """
         logger.info(f"Initializing Base Agent for: {agent_name}")
         self.agent_name = agent_name

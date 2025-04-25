@@ -1,7 +1,6 @@
 import asyncio
-import logging
-import os
 import base64
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
