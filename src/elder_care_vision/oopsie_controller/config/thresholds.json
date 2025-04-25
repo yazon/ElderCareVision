@@ -13,5 +13,11 @@
     },
     "warning": {
         "frames": 5
+    },
+    "auto_update": {
+        "enabled": false,
+        "min_confidence": 0.8,
+        "max_adjustment": 0.2,
+        "update_frequency": 10
     }
 } 

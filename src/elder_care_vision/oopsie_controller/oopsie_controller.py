@@ -40,6 +40,7 @@ class OopsieController:
         llm_cooldown: Minimum seconds between LLM requests
         last_pose_data: Store of the last processed pose data
         thresholds: Configuration values loaded from JSON
+        update_counter: Counter for update frequency
     """
     
     def __init__(self):
@@ -70,6 +71,12 @@ class OopsieController:
                 },
                 "warning": {
                     "frames": 5
+                },
+                "auto_update": {
+                    "enabled": False,
+                    "min_confidence": 0.8,
+                    "max_adjustment": 0.2,
+                    "update_frequency": 10
                 }
             }
             
@@ -80,6 +87,7 @@ class OopsieController:
         self.last_llm_request_time = 0
         self.llm_cooldown = self.thresholds["llm"]["cooldown_seconds"]
         self.last_pose_data = None
+        self.update_counter = 0  # Counter for update frequency
         logger.info("OopsieController initialized and ready for fall detection")
         
     def draw_poi(self, frame: np.ndarray, landmarks) -> np.ndarray:
@@ -251,6 +259,54 @@ class OopsieController:
             
         return False
         
+    def _apply_threshold_adjustments(self, adjustments: dict) -> None:
+        """Apply threshold adjustments with safety checks.
+        
+        Args:
+            adjustments: Dictionary containing threshold adjustments
+        """
+        try:
+            # Check if auto-update is enabled
+            if not self.thresholds["auto_update"]["enabled"]:
+                logger.info("Auto-update is disabled, skipping threshold adjustments")
+                return
+                
+            # Check update frequency
+            self.update_counter += 1
+            if self.update_counter < self.thresholds["auto_update"]["update_frequency"]:
+                return
+            self.update_counter = 0
+            
+            # Apply adjustments with safety limits
+            for category, values in adjustments.items():
+                if category in self.thresholds:
+                    for key, value in values.items():
+                        if key in self.thresholds[category]:
+                            # Calculate relative change
+                            current_value = self.thresholds[category][key]
+                            relative_change = abs(value - current_value) / current_value
+                            
+                            # Apply maximum adjustment limit
+                            if relative_change > self.thresholds["auto_update"]["max_adjustment"]:
+                                if value > current_value:
+                                    value = current_value * (1 + self.thresholds["auto_update"]["max_adjustment"])
+                                else:
+                                    value = current_value * (1 - self.thresholds["auto_update"]["max_adjustment"])
+                                logger.info(f"Limited adjustment for {category}.{key} to {value:.2f}")
+                            
+                            # Update the threshold
+                            self.thresholds[category][key] = value
+                            
+            # Save updated thresholds to config file
+            config_path = Path(__file__).parent / "config" / "thresholds.json"
+            with open(config_path, "w") as f:
+                json.dump(self.thresholds, f, indent=4)
+                
+            logger.info(f"Updated thresholds based on feedback: {adjustments}")
+            
+        except Exception as e:
+            logger.error(f"Failed to apply threshold adjustments: {str(e)}")
+        
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, bool]:
         """Process a single frame for fall detection and verification.
         
@@ -361,6 +417,12 @@ class OopsieController:
                 cv2.putText(frame, f"Hip Ratio: {head_to_hip_ratio:.2f} / {self.thresholds['head_detection']['hip_ratio_threshold']:.2f}", 
                            (10, y_offset), font, font_scale, color, thickness)
                 
+                # Add auto-update status
+                y_offset += 20
+                auto_update_status = "ON" if self.thresholds["auto_update"]["enabled"] else "OFF"
+                cv2.putText(frame, f"Auto-update: {auto_update_status}", 
+                           (10, y_offset), font, font_scale, (255, 255, 0), thickness)
+                
                 # Highlight exceeded thresholds in red
                 if is_head_tilted:
                     cv2.putText(frame, "TILT EXCEEDED", (150, 20), font, font_scale, (0, 0, 255), thickness)
@@ -402,19 +464,9 @@ class OopsieController:
                                     adjustment_text = analysis.split("THRESHOLD_ADJUSTMENT:")[1].strip()
                                     adjustments = json.loads(adjustment_text)
                                     
-                                    # Update thresholds in config file
-                                    for category, values in adjustments.items():
-                                        if category in self.thresholds:
-                                            for key, value in values.items():
-                                                if key in self.thresholds[category]:
-                                                    self.thresholds[category][key] = value
-                                                    
-                                    # Save updated thresholds to config file
-                                    config_path = Path(__file__).parent / "config" / "thresholds.json"
-                                    with open(config_path, "w") as f:
-                                        json.dump(self.thresholds, f, indent=4)
-                                        
-                                    logger.info(f"Updated thresholds based on LLM feedback: {adjustments}")
+                                    # Apply adjustments with auto-update checks
+                                    self._apply_threshold_adjustments(adjustments)
+                                    
                                 except Exception as e:
                                     logger.error(f"Failed to process threshold adjustments: {str(e)}")
                     except Exception as e:
