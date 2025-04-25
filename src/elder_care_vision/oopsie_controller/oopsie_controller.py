@@ -912,7 +912,7 @@ class OopsieController:
         
         Args:
             callback: Function to call when LLM confirms a fall.
-                     Will be called with (frame_sequence_path, analysis_text, timestamp)
+                     Will be called with (frame_history, frame_timestamps, analysis_text, timestamp)
         """
         self.confirmed_fall_subscribers.append(callback)
         
@@ -934,13 +934,14 @@ class OopsieController:
         """Notify all confirmed fall subscribers.
         
         Args:
-            sequence_path: Path to the frame sequence image
+            sequence_path: Path to the frame sequence image (unused)
             analysis: The LLM analysis text
             timestamp: Time of confirmation
         """
         for subscriber in self.confirmed_fall_subscribers:
             try:
-                subscriber(sequence_path, analysis, timestamp)
+                # Pass the actual frame history and timestamps instead of the sequence path
+                subscriber(self.frame_history.copy(), self.frame_timestamps.copy(), analysis, timestamp)
             except Exception as e:
                 logger.error(f"Error in confirmed fall subscriber: {str(e)}")
                 
@@ -958,13 +959,16 @@ class OopsieController:
         
         # Update frame history
         current_time = time.time()
-        self.frame_history.append(frame.copy())
-        self.frame_timestamps.append(current_time)
         
-        # Keep only the last N frames
-        if len(self.frame_history) > self.max_history_frames:
-            self.frame_history.pop(0)
-            self.frame_timestamps.pop(0)
+        # Only update frame history every 0.5 seconds
+        if not self.frame_timestamps or (current_time - self.frame_timestamps[-1] >= 0.5):
+            self.frame_history.append(frame.copy())
+            self.frame_timestamps.append(current_time)
+            
+            # Keep only the last N frames
+            if len(self.frame_history) > self.max_history_frames:
+                self.frame_history.pop(0)
+                self.frame_timestamps.pop(0)
         
         # Draw POI if person is detected
         if results.pose_landmarks:
@@ -1010,9 +1014,9 @@ class OopsieController:
                     self.current_warning_frames = self.warning_frames
                     
                     # Notify confirmed fall subscribers
-                    if hasattr(self, 'last_sequence_path'):
+                    if hasattr(self, 'frame_history') and hasattr(self, 'frame_timestamps'):
                         self._notify_confirmed_fall(
-                            self.last_sequence_path,
+                            None,
                             analysis,
                             time.time()
                         )

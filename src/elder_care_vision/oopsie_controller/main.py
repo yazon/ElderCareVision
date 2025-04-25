@@ -6,8 +6,62 @@ import sys
 from pathlib import Path
 import cv2
 import time
+import numpy as np
 
 from .oopsie_controller import OopsieController
+
+def create_frame_sequence(frames, timestamps, width=None):
+    """Create a horizontal sequence of frames.
+    
+    Args:
+        frames: List of frames to combine
+        timestamps: List of timestamps for each frame
+        width: Optional width to resize frames to
+    
+    Returns:
+        Combined image showing frame sequence
+    """
+    if not frames:
+        return None
+        
+    # If width specified, resize all frames
+    if width:
+        resized_frames = []
+        for frame in frames:
+            height = int(frame.shape[0] * (width / frame.shape[1]))
+            resized_frames.append(cv2.resize(frame, (width, height)))
+        frames = resized_frames
+    
+    # Calculate dimensions for the sequence image
+    frame_height, frame_width = frames[0].shape[:2]
+    sequence_width = frame_width * 3  # 3 frames per row
+    sequence_height = frame_height * 2  # 2 rows
+    
+    # Create blank image for the sequence
+    sequence = np.zeros((sequence_height, sequence_width, 3), dtype=np.uint8)
+    
+    # Add frames to sequence with timestamps
+    latest_time = timestamps[-1]
+    for i, (frame, timestamp) in enumerate(zip(frames, timestamps)):
+        row = i // 3
+        col = i % 3
+        y_start = row * frame_height
+        x_start = col * frame_width
+        
+        # Add frame to sequence
+        sequence[y_start:y_start + frame_height, x_start:x_start + frame_width] = frame
+        
+        # Add timestamp with time difference
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.5
+        thickness = 1
+        time_diff = latest_time - timestamp
+        timestamp_str = f"t-{time_diff:.1f}s"
+        cv2.putText(sequence, timestamp_str,
+                   (x_start + 10, y_start + frame_height - 10),
+                   font, font_scale, (255, 255, 255), thickness)
+    
+    return sequence
 
 def on_algorithm_fall(frame, landmarks, timestamp):
     """Handle algorithm-detected falls.
@@ -17,35 +71,65 @@ def on_algorithm_fall(frame, landmarks, timestamp):
         landmarks: The pose landmarks
         timestamp: Time of detection
     """
-    # Save the frame with timestamp
     timestamp_str = time.strftime("%Y%m%d-%H%M%S", time.localtime(timestamp))
     output_path = f"algorithm_fall_{timestamp_str}.jpg"
     ## cv2.imwrite(output_path, frame)
     
     logging.warning(f"⚠️  Algorithm detected potential fall at {timestamp_str}")
 
-def on_confirmed_fall(sequence_path, analysis, timestamp):
+def on_confirmed_fall(sequence_frames, sequence_timestamps, analysis, timestamp):
     """Handle LLM-confirmed falls.
     
     Args:
-        sequence_path: Path to the frame sequence image
+        sequence_frames: List of frames showing the fall sequence
+        sequence_timestamps: List of timestamps for each frame
         analysis: The LLM analysis text
         timestamp: Time of confirmation
     """
+    if not sequence_frames or not sequence_timestamps:
+        logging.error("No frames or timestamps provided for confirmed fall")
+        return
+        
     timestamp_str = time.strftime("%Y%m%d-%H%M%S", time.localtime(timestamp))
     
-    # Save the sequence with timestamp
-    output_path = f"confirmed_fall_{timestamp_str}.jpg"
-    cv2.imwrite(output_path, cv2.imread(sequence_path))
-    
-    # Save the analysis
-    analysis_path = f"fall_analysis_{timestamp_str}.txt"
-    with open(analysis_path, "w") as f:
-        f.write(analysis)
-    
-    logging.error(f"🚨 LLM CONFIRMED FALL at {timestamp_str}")
-    logging.info(f"Sequence saved to: {output_path}")
-    logging.info(f"Analysis saved to: {analysis_path}")
+    try:
+        # Create sequence image from frames
+        sequence = create_frame_sequence(sequence_frames, sequence_timestamps, width=400)
+        if sequence is None:
+            logging.error("Failed to create frame sequence")
+            return
+            
+        # Add analysis text to the bottom of the sequence
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.7
+        thickness = 2
+        padding = 20
+        
+        # Add padding at the bottom for text
+        text_height = 100  # Fixed height for text section
+        padded_sequence = np.zeros((sequence.shape[0] + text_height, sequence.shape[1], 3), dtype=np.uint8)
+        padded_sequence[:-text_height] = sequence
+        
+        # Add analysis text
+        y_pos = sequence.shape[0] + padding
+        cv2.putText(padded_sequence, f"Analysis: {analysis}",
+                   (padding, y_pos), font, font_scale, (255, 255, 255), thickness)
+            
+        # Save the sequence
+        output_path = f"confirmed_fall_{timestamp_str}.jpg"
+        cv2.imwrite(output_path, padded_sequence)
+        
+        # Save the analysis
+        analysis_path = f"fall_analysis_{timestamp_str}.txt"
+        with open(analysis_path, "w") as f:
+            f.write(analysis)
+        
+        logging.error(f"🚨 LLM CONFIRMED FALL at {timestamp_str}")
+        logging.info(f"Annotated sequence saved to: {output_path}")
+        logging.info(f"Analysis saved to: {analysis_path}")
+        
+    except Exception as e:
+        logging.error(f"Error processing confirmed fall: {str(e)}")
 
 def process_video(controller: OopsieController, video_path: str) -> None:
     """Process a video file for fall detection.
