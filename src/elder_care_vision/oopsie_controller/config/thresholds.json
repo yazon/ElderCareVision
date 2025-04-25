@@ -1,0 +1,23 @@
+{
+    "head_detection": {
+        "tilt_threshold": 2.0,
+        "position_threshold": 0.36,
+        "shoulder_ratio_threshold": 2.07,
+        "hip_ratio_threshold": 1.35
+    },
+    "pose_detection": {
+        "movement_threshold": 0.15
+    },
+    "llm": {
+        "cooldown_seconds": 2
+    },
+    "warning": {
+        "frames": 5
+    },
+    "auto_update": {
+        "enabled": true,
+        "min_confidence": 0.8,
+        "max_adjustment": 0.1,
+        "update_frequency": 1
+    }
+}
