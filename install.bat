@@ -3,3 +3,5 @@ pip install -U wheel
 pip install -U setuptools
 
 pip install -e .[dev]
+
+pre-commit install
