@@ -350,3 +350,25 @@ class OpenAIService:
         """
         print("Error in OpenAI completion:", error)
         raise OpenAIChatCompletionError(str(error)) from error
+
+    async def text_to_speech(self, text: str, voice: str = "alloy", output_format: str = "mp3") -> bytes:
+        """Convert text to speech using OpenAI's TTS API.
+
+        Args:
+            text: The text to convert to speech
+            voice: The voice to use (alloy, echo, fable, onyx, nova, shimmer)
+            output_format: The output format (mp3, opus, aac, flac)
+
+        Returns:
+            bytes: The audio data in the specified format
+
+        Raises:
+            OpenAIChatCompletionError: If the text-to-speech conversion fails
+        """
+        try:
+            response = await self.openai.audio.speech.create(
+                model="tts-1", voice=voice, input=text, response_format=output_format
+            )
+            return response.content
+        except Exception as e:
+            raise OpenAIChatCompletionError(f"Failed to convert text to speech: {str(e)}") from e

@@ -46,7 +46,7 @@ async def test_image_description(openai_service: OpenAIService) -> None:
             {
                 "role": "user",
                 "content": [
-                    { "type": "input_text", "text": "what's in this image?" },
+                    {"type": "input_text", "text": "what's in this image?"},
                     {
                         "type": "input_image",
                         "image_url": f"data:image/jpeg;base64,{base64_image}",
@@ -63,17 +63,45 @@ async def test_image_description(openai_service: OpenAIService) -> None:
         logger.exception("An error occurred in image description test")
 
 
+async def test_text_to_speech(openai_service: OpenAIService) -> None:
+    """Test OpenAI service with text-to-speech conversion."""
+    try:
+        # Test text to convert
+        test_text = "Hello, this is a test of the text-to-speech functionality. I hope you can hear me clearly."
+
+        # Convert text to speech
+        audio_data = await openai_service.text_to_speech(
+            text=test_text,
+            voice="nova",  # Using a clear, natural-sounding voice
+            output_format="mp3",
+        )
+
+        # Save the audio to a file
+        output_path = Path("static/test_tts.mp3")
+        with open(output_path, "wb") as f:
+            f.write(audio_data)
+
+        logger.info("Text-to-speech test completed. Audio saved to %s", output_path)
+
+    except Exception:
+        logger.exception("An error occurred in text-to-speech test")
+
+
 async def main() -> None:
     """Run all OpenAI service tests."""
     openai_service = OpenAIService()
-    
+
     # Run joke test
     logger.info("Running joke test...")
     await test_joke(openai_service)
-    
+
     # Run image description test
     logger.info("Running image description test...")
     await test_image_description(openai_service)
+
+    # Run text-to-speech test
+    logger.info("Running text-to-speech test...")
+    await test_text_to_speech(openai_service)
 
 
 if __name__ == "__main__":
