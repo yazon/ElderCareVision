@@ -53,7 +53,7 @@ class ImgAnalizer:
         """Initialize the ImgAnalizer with an OpenAIService instance."""
         self.openai_service = OpenAIService()
 
-    async def analize_image(self, base64_image: str) -> str:
+    async def analize_image(self, base64_image: str, relationship: str) -> str:
         """Analyze an image of an elderly fall and generate a notification message.
 
         This method takes a base64-encoded image, sends it to OpenAI for analysis,
@@ -88,8 +88,8 @@ class ImgAnalizer:
                             "text": (
                                 "Based on the attached image showing an elderly person who has fallen and is not "
                                 "responding to voice commands, generate a short, empathetic, and informative notification "
-                                "message intended for a grandson. The message should briefly describe the incident, indicate "
-                                "that assistance may be needed, and ask the grandson to check on the elderly person."
+                                f"message intended for a {relationship}. The message should briefly describe the incident, indicate "
+                                f"that assistance may be needed, and ask the {relationship} to check on the elderly person."
                             ),
                         },
                         {

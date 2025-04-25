@@ -3,20 +3,20 @@
 import base64
 import logging
 import asyncio
+import time
 from pathlib import Path
 
 from elder_care_vision.config.logging_config import setup_logging
 from elder_care_vision.core.tools.emergency_call.adb_phone_call_manager import ADBPhoneCallManager
 from elder_care_vision.core.tools.emergency_call.img_analizer import ImgAnalizer
 from elder_care_vision.services.openai_service import OpenAIService
-# from elder_care_vision.core.tools.function_tool import function_tool
+from elder_care_vision.utils.utils import load_config
 
 setup_logging()
 
 logger = logging.getLogger(__name__)
 
 
-# @function_tool
 async def EmergencyCall(imageBase64: str) -> bool:
     """Process an emergency call with image analysis and audio notification.
 
@@ -27,9 +27,12 @@ async def EmergencyCall(imageBase64: str) -> bool:
         bool: True if emergency call was processed successfully, False otherwise
     """
     try:
+        # Get config
+        config = load_config()["emergency_call"]
+
         # Analyze the image
         img_analizer = ImgAnalizer()
-        text = await img_analizer.analize_image(imageBase64)
+        text = await img_analizer.analize_image(imageBase64, config["relationship"])
         if not text:
             logger.error("Failed to analyze image")
             return False
@@ -43,7 +46,7 @@ async def EmergencyCall(imageBase64: str) -> bool:
 
         # Make the emergency call
         caller = EmergencyCallHelper()
-        success = caller.make_call("517736641", audio_data)
+        success = caller.make_call(config["phone_number"], audio_data)
 
         if success:
             logger.info("Emergency call processed successfully")
@@ -61,16 +64,9 @@ class EmergencyCallHelper:
     def __init__(self):
         self.phone_manager = ADBPhoneCallManager()
 
-    def analize_image(self, image) -> bool:
-        """Analyze the image and return True if it is an emergency call, False otherwise."""
-        return True
-
     def make_call(self, phone_number: str, audio_data: bytes) -> bool:
         try:
             phone_manager = ADBPhoneCallManager()
-
-            # Example phone number to call
-            phone_number = "517736641"
 
             logger.info(f"Making call to {phone_number}...")
             if phone_manager.make_call(phone_number):
