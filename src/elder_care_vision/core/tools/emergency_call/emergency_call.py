@@ -45,26 +45,37 @@ async def emergency_call_tool(imageBase64: str) -> bool:
             return False
 
         # Make the emergency call
-        caller = EmergencyCallHelper()
-        success = caller.make_call(config["phone_number"], audio_data)
+        try:
+            caller = EmergencyCallHelper()
+            success = caller.make_call(config["phone_number"], audio_data)
 
-        if success:
-            logger.info("Emergency call processed successfully")
-        else:
-            logger.error("Failed to process emergency call")
+            if success:
+                logger.info("Emergency call processed successfully")
+            else:
+                logger.error("Failed to process emergency call")
 
-        return success
+            return success
+        except ValueError as e:
+            logger.error("No Android device found. Please connect a device and try again.")
+            return False
 
     except Exception as e:
-        logger.exception("Error in emergency call processing: %s", e)
+        logger.error("Error in emergency call processing: %s", str(e))
         return False
 
 
 class EmergencyCallHelper:
     def __init__(self):
-        self.phone_manager = ADBPhoneCallManager()
+        try:
+            self.phone_manager = ADBPhoneCallManager()
+        except ValueError as e:
+            logger.error("No Android device found. Please connect a device and try again.")
+            raise
 
     def make_call(self, phone_number: str, audio_data: bytes) -> bool:
+        if self.phone_manager is None:
+            logger.error("No phone manager available to make a call")
+            return False
         try:
             phone_manager = ADBPhoneCallManager()
 
@@ -90,6 +101,7 @@ class EmergencyCallHelper:
                     logger.info("Ending call...")
                     if phone_manager.end_call():
                         logger.info("Call ended successfully")
+                        return True
                     else:
                         logger.warning("Failed to end call")
                 else:
@@ -98,10 +110,14 @@ class EmergencyCallHelper:
             else:
                 logger.error("Failed to initiate call")
 
+            return False
+
         except RuntimeError as e:
-            logger.error(f"Runtime error: {e}")
+            logger.error("Runtime error occurred during call")
+            return False
         except Exception as e:
-            logger.exception(f"Unexpected error: {e}")
+            logger.error("Unexpected error occurred during call")
+            return False
 
 
 if __name__ == "__main__":
@@ -119,8 +135,9 @@ if __name__ == "__main__":
             base64_image = base64.b64encode(image_data).decode("utf-8")
 
         # Use asyncio to run the async function
-        asyncio.run(EmergencyCall(base64_image))
+        success = asyncio.run(emergency_call_tool(base64_image))
+        exit(0 if success else 1)
 
     except Exception as e:
-        logger.exception("Failed to process image: %s", e)
+        logger.error("Failed to process image: %s", str(e))
         exit(1)

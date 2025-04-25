@@ -34,7 +34,10 @@ class ADBPhoneCallManager:
     def __init__(self, host: str = "127.0.0.1", port: int = 5037, device_index: int = 0) -> None:
         """Initialize the ADBPhoneCallManager."""
         self.client = AdbClient(host=host, port=port)
-        self.device = self.client.devices()[device_index]
+        if self.client.devices():
+            self.device = self.client.devices()[device_index]
+        else:
+            raise ValueError("No devices found")
         self._last_status = CallStatus.IDLE
 
     def make_call(self, phone_number: str) -> bool:
@@ -115,7 +118,7 @@ class ADBPhoneCallManager:
         try:
             device_index = None
             for idx, device in enumerate(sd.query_devices()):
-                if device['name'] and "plantronics" in device['name'].lower():
+                if device["name"] and "plantronics" in device["name"].lower():
                     device_index = idx
                     break
 

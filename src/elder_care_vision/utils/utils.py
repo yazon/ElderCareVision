@@ -24,3 +24,14 @@ def load_config() -> dict[str, any]:
     except json.JSONDecodeError as e:
         err = f"Invalid JSON in config file: {e}"
         raise UtilsError(err) from e
+
+
+def get_static_path() -> Path:
+    """
+    Get the absolute path to the static data directory.
+
+    Returns:
+        Path: Absolute path to the static data directory
+    """
+    # The static directory is located at the same level as the config directory
+    return Path(__file__).parent.parent / "static"
