@@ -10,7 +10,10 @@
         },
         "psa": {
             "model": "o3-mini",
-            "temperature": 0.7
+            "temperature": 0.7,
+            "confidence_threshold_1": 50,
+            "confidence_threshold_2": 80,
+            "health_statuses": ["healthy", "not_healthy", "needs_help"]
         }
     },
     "tool": {
