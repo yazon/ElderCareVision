@@ -1,0 +1,57 @@
+@startuml ElderCareVision Sequence
+
+actor User
+participant "Main" as main
+participant "OopsieController" as controller
+participant "FrameQueue" as queue
+participant "PoseDetector" as pose
+participant "FallDetector" as fall
+participant "LLMAnalyzer" as llm
+participant "Subscribers" as sub
+database "Frame History" as history
+
+== Initialization ==
+User -> main: Start video processing
+activate main
+main -> controller: Initialize
+activate controller
+controller -> queue: Create frame queue
+controller -> pose: Initialize pose detector
+controller -> fall: Initialize fall detector
+controller -> history: Initialize frame history
+
+== Frame Processing Loop ==
+loop For each frame
+    main -> controller: process_frame(frame)
+    controller -> queue: push_frame(frame)
+    
+    controller -> pose: detect_pose(frame)
+    pose --> controller: pose_landmarks
+    
+    controller -> fall: analyze_pose(pose_landmarks)
+    fall --> controller: fall_detected
+    
+    alt fall_detected && significant_pose_change
+        controller -> history: save_frame_sequence()
+        controller -> sub: notify_algorithm_fall(frame)
+        
+        controller -> llm: analyze_fall(frame_sequence)
+        llm --> controller: fall_confirmed
+        
+        alt fall_confirmed
+            controller -> sub: notify_confirmed_fall(frame_sequence, analysis)
+        end
+    end
+    
+    controller -> controller: update_display()
+end
+
+== Cleanup ==
+User -> main: Stop processing
+main -> controller: cleanup()
+controller -> queue: clear()
+controller -> history: clear()
+deactivate controller
+deactivate main
+
+@enduml
