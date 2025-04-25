@@ -2,13 +2,15 @@
 
 import time
 import logging
-from elder_care_vision.emengencyCall.adb_phone_call_manager import ADBPhoneCallManager, CallStatus
+from agents import function_tool
+from elder_care_vision.core.tools.emergency_call.adb_phone_call_manager import ADBPhoneCallManager, CallStatus
 from elder_care_vision.config.logging_config import setup_logging
 
 setup_logging()
 
 logger = logging.getLogger(__name__)
 
+@function_tool
 def EmergencyCall(imageBase64: str) -> bool:
     """Analyze the image and return True if it is an emergency call, False otherwise."""
     return True
