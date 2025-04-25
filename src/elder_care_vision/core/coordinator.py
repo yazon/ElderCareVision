@@ -3,7 +3,7 @@ import time
 import base64
 from dataclasses import dataclass, field
 from enum import Enum, auto
-
+from pathlib import Path
 from agents import Runner
 
 from elder_care_vision.core.agents.health_status_inquiry import HealthStatusInquiryAgent
@@ -118,16 +118,13 @@ class Coordinator:
         """Processes the inquiring health state."""
         logger.info("Processing inquiring health state")
         # Use the health_status_inquiry_agent and context data
-        health_status = await Runner.run(
-            self.health_status_inquiry_agent.get_agent(), input="Ask the user if everything is okay"
-        )
-        self.context.health_status = health_status.final_output.health_status
+        hsa = HealthStatusInquiryAgent()
+        self.context.health_status = await hsa.run_agent()
         logger.info(f"Health status: {self.context.health_status}")
-        if self.context.health_status == "needs_help":
+        if self.context.health_status == "needs_help" or self.context.health_status == "not_ok":
             self.transition_to_state(CoordinatorState.CALLING_EMERGENCY)
         else:
             self.transition_to_state(CoordinatorState.START)
-        time.sleep(10)
 
     async def process_calling_emergency_state(self) -> None:
         """Processes the calling emergency state."""
