@@ -17,9 +17,11 @@ import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import tkinter as tk
+from tkinter import scrolledtext
 from PIL import Image, ImageTk
 import threading
 import io
+import queue
 
 from .oopsie_alert.oopsie_alert import FallDetector
 from .oopsie_nanny.oopsie_nanny import ImageRecognizer
@@ -42,12 +44,35 @@ class ColoredFormatter(logging.Formatter):
             record.msg = f"{Fore.CYAN}{record.msg}{Style.RESET_ALL}"
         return super().format(record)
 
+# Custom handler to send logs to tkinter
+class TkinterLogHandler(logging.Handler):
+    def __init__(self, log_queue):
+        super().__init__()
+        self.log_queue = log_queue
+        self.setFormatter(ColoredFormatter("%(asctime)s - %(levelname)s - %(message)s"))
+        
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.log_queue.put(msg)
+        except Exception:
+            self.handleError(record)
+
 # Configure logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-handler = logging.StreamHandler()
-handler.setFormatter(ColoredFormatter("%(asctime)s - %(levelname)s - %(message)s"))
-logger.addHandler(handler)
+
+# Create queue for log messages
+log_queue = queue.Queue()
+
+# Add console handler
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(ColoredFormatter("%(asctime)s - %(levelname)s - %(message)s"))
+logger.addHandler(console_handler)
+
+# Add tkinter handler
+tk_handler = TkinterLogHandler(log_queue)
+logger.addHandler(tk_handler)
 
 class OopsieController:
     """The main controller that orchestrates fall detection and verification.
@@ -69,10 +94,19 @@ class OopsieController:
         update_counter: Counter for update frequency
         threshold_history: Dictionary to store threshold history
         max_history_length: Maximum length of threshold history
-        fig: Matplotlib figure for threshold history plots
-        axs: Matplotlib axes for threshold history plots
+        fig_thresholds: Matplotlib figure for threshold history plots
+        axs_thresholds: Matplotlib axes for threshold history plots
+        fig_detection: Matplotlib figure for detection history plots
+        ax_detection: Matplotlib axes for detection history plots
         plot_colors: Colors for threshold history plots
-        plot_queue: Queue for thread-safe communication
+        detection_colors: Colors for detection history plots
+        plot_lines: Dictionary to store plot lines
+        plot_points: Dictionary to store plot points
+        min_lines: Dictionary to store min lines
+        max_lines: Dictionary to store max lines
+        text_boxes: Dictionary to store text boxes
+        detection_history: Dictionary to store detection history
+        detection_lines: Dictionary to store detection lines
     """
     
     def __init__(self):
@@ -130,16 +164,31 @@ class OopsieController:
         }
         self.max_history_length = 50  # Keep last 50 values
         
-        # Initialize matplotlib figure
-        self.fig, self.axs = plt.subplots(2, 2, figsize=(12, 8))
-        self.fig.suptitle("Threshold History", fontsize=16)
-        self.fig.patch.set_facecolor('#1e1e1e')  # Dark background
-        self.fig.patch.set_alpha(0.8)
+        # Initialize detection history
+        self.detection_history = {
+            "algorithm": [],  # Algorithm detection status (0 or 1)
+            "llm": [],       # LLM detection status (0 or 1)
+            "confirmed": []  # Final confirmed status (0 or 1)
+        }
         
-        # Configure subplots
-        for ax in self.axs.flat:
-            ax.set_facecolor('#2d2d2d')  # Slightly lighter background
-            ax.tick_params(colors='white')  # White text
+        # Initialize matplotlib figures with smaller sizes
+        self.fig_thresholds, self.axs_thresholds = plt.subplots(2, 2, figsize=(8, 6))
+        self.fig_detection, self.ax_detection = plt.subplots(figsize=(8, 3))
+        
+        # Configure threshold plots
+        self.fig_thresholds.suptitle("Threshold History", fontsize=12)
+        self.fig_thresholds.patch.set_facecolor('#1e1e1e')
+        self.fig_thresholds.patch.set_alpha(0.8)
+        
+        # Configure detection plot
+        self.fig_detection.suptitle("Detection Status", fontsize=12)
+        self.fig_detection.patch.set_facecolor('#1e1e1e')
+        self.fig_detection.patch.set_alpha(0.8)
+        
+        # Configure subplots with smaller fonts
+        for ax in self.axs_thresholds.flat:
+            ax.set_facecolor('#2d2d2d')
+            ax.tick_params(colors='white', labelsize=8)
             ax.spines['bottom'].set_color('white')
             ax.spines['top'].set_color('white')
             ax.spines['left'].set_color('white')
@@ -147,11 +196,24 @@ class OopsieController:
             ax.xaxis.label.set_color('white')
             ax.yaxis.label.set_color('white')
         
-        # Set titles and labels
-        self.axs[0, 0].set_title("Tilt Threshold", color='white')
-        self.axs[0, 1].set_title("Position Threshold", color='white')
-        self.axs[1, 0].set_title("Shoulder Ratio", color='white')
-        self.axs[1, 1].set_title("Hip Ratio", color='white')
+        # Configure detection plot with smaller fonts
+        self.ax_detection.set_facecolor('#2d2d2d')
+        self.ax_detection.tick_params(colors='white', labelsize=8)
+        self.ax_detection.spines['bottom'].set_color('white')
+        self.ax_detection.spines['top'].set_color('white')
+        self.ax_detection.spines['left'].set_color('white')
+        self.ax_detection.spines['right'].set_color('white')
+        self.ax_detection.xaxis.label.set_color('white')
+        self.ax_detection.yaxis.label.set_color('white')
+        self.ax_detection.set_ylim(-0.1, 1.1)
+        self.ax_detection.set_yticks([0, 1])
+        self.ax_detection.set_yticklabels(['No Fall', 'Fall'], fontsize=8)
+        
+        # Set titles and labels for threshold plots with smaller fonts
+        self.axs_thresholds[0, 0].set_title("Tilt Threshold", color='white', fontsize=10)
+        self.axs_thresholds[0, 1].set_title("Position Threshold", color='white', fontsize=10)
+        self.axs_thresholds[1, 0].set_title("Shoulder Ratio", color='white', fontsize=10)
+        self.axs_thresholds[1, 1].set_title("Hip Ratio", color='white', fontsize=10)
         
         # Colors for each metric
         self.plot_colors = {
@@ -161,12 +223,22 @@ class OopsieController:
             "hip_ratio": "#00ff00"  # Green
         }
         
+        # Colors for detection lines
+        self.detection_colors = {
+            "algorithm": "#ff0000",  # Red
+            "llm": "#00ff00",        # Green
+            "confirmed": "#0000ff"   # Blue
+        }
+        
         # Initialize plot lines and points
         self.plot_lines = {}
         self.plot_points = {}
         self.min_lines = {}
         self.max_lines = {}
         self.text_boxes = {}
+        
+        # Initialize detection lines
+        self.detection_lines = {}
         
         # Initialize plot elements
         metrics = {
@@ -177,20 +249,32 @@ class OopsieController:
         }
         
         for metric, (row, col) in metrics.items():
-            ax = self.axs[row, col]
+            ax = self.axs_thresholds[row, col]
             # Create initial empty line
-            self.plot_lines[metric], = ax.plot([], [], color=self.plot_colors[metric], linewidth=2)
+            self.plot_lines[metric], = ax.plot([], [], color=self.plot_colors[metric], linewidth=1.5)
             # Create initial point
-            self.plot_points[metric], = ax.plot([], [], 'o', color=self.plot_colors[metric], markersize=8)
+            self.plot_points[metric], = ax.plot([], [], 'o', color=self.plot_colors[metric], markersize=4)
             # Create min/max lines
             self.min_lines[metric] = ax.axhline(y=0, color='white', linestyle='--', alpha=0.3)
             self.max_lines[metric] = ax.axhline(y=0, color='white', linestyle='--', alpha=0.3)
-            # Create text box
+            # Create text box with smaller font
             self.text_boxes[metric] = ax.text(0.02, 0.98, "", transform=ax.transAxes, color='white',
-                                            verticalalignment='top', bbox=dict(facecolor='black', alpha=0.5))
+                                            verticalalignment='top', fontsize=8,
+                                            bbox=dict(facecolor='black', alpha=0.5))
         
-        # Set initial layout
-        plt.tight_layout()
+        # Initialize detection lines with thinner lines
+        for detector in ["algorithm", "llm", "confirmed"]:
+            self.detection_lines[detector], = self.ax_detection.plot([], [], 
+                                                                   color=self.detection_colors[detector],
+                                                                   linewidth=1.5,
+                                                                   label=detector.capitalize())
+        
+        # Add legend to detection plot with smaller font
+        self.ax_detection.legend(loc='upper right', facecolor='#2d2d2d', edgecolor='white', 
+                               labelcolor='white', fontsize=8)
+        
+        # Set initial layout with tighter spacing
+        plt.tight_layout(pad=1.0)
         
         # Create tkinter window in a separate thread
         self.plot_thread = threading.Thread(target=self._run_plot_window, daemon=True)
@@ -206,16 +290,30 @@ class OopsieController:
         try:
             # Create tkinter window
             self.root = tk.Tk()
-            self.root.title("Threshold History")
-            self.root.geometry("1200x800")
+            self.root.title("Fall Detection Monitor")
+            self.root.geometry("800x600")  # Reduced window size
             self.root.configure(bg='#1e1e1e')
             
-            # Create label for plot image
-            self.plot_label = tk.Label(self.root, bg='#1e1e1e')
-            self.plot_label.pack(fill=tk.BOTH, expand=True)
+            # Create main frame
+            main_frame = tk.Frame(self.root, bg='#1e1e1e')
+            main_frame.pack(fill=tk.BOTH, expand=True)
             
-            # Start periodic update
-            self._update_plot()
+            # Create plot frames
+            threshold_frame = tk.Frame(main_frame, bg='#1e1e1e')
+            threshold_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
+            
+            detection_frame = tk.Frame(main_frame, bg='#1e1e1e')
+            detection_frame.pack(fill=tk.BOTH, expand=True, side=tk.BOTTOM)
+            
+            # Create labels for plot images
+            self.threshold_label = tk.Label(threshold_frame, bg='#1e1e1e')
+            self.threshold_label.pack(fill=tk.BOTH, expand=True)
+            
+            self.detection_label = tk.Label(detection_frame, bg='#1e1e1e')
+            self.detection_label.pack(fill=tk.BOTH, expand=True)
+            
+            # Start periodic updates
+            self._update_plots()
             
             # Start the tkinter event loop
             self.root.mainloop()
@@ -223,28 +321,73 @@ class OopsieController:
         except Exception as e:
             logger.error(f"Error in plot window thread: {str(e)}")
             
-    def _update_plot(self) -> None:
-        """Update the plot image in the tkinter window."""
+    def _update_plots(self) -> None:
+        """Update both plot images in the tkinter window."""
         try:
-            # Save plot to memory buffer
-            buf = io.BytesIO()
-            self.fig.savefig(buf, format='png', facecolor='#1e1e1e', edgecolor='none')
-            buf.seek(0)
+            # Update threshold plot
+            buf_threshold = io.BytesIO()
+            self.fig_thresholds.savefig(buf_threshold, format='png', facecolor='#1e1e1e', edgecolor='none')
+            buf_threshold.seek(0)
             
-            # Convert to PIL Image and then to PhotoImage
-            image = Image.open(buf)
-            photo = ImageTk.PhotoImage(image)
+            # Update detection plot
+            buf_detection = io.BytesIO()
+            self.fig_detection.savefig(buf_detection, format='png', facecolor='#1e1e1e', edgecolor='none')
+            buf_detection.seek(0)
             
-            # Update the label
-            self.plot_label.configure(image=photo)
-            self.plot_label.image = photo  # Keep a reference
+            # Convert to PIL Images
+            threshold_image = Image.open(buf_threshold)
+            detection_image = Image.open(buf_detection)
+            
+            # Convert to PhotoImages
+            threshold_photo = ImageTk.PhotoImage(threshold_image)
+            detection_photo = ImageTk.PhotoImage(detection_image)
+            
+            # Update the labels
+            self.threshold_label.configure(image=threshold_photo)
+            self.threshold_label.image = threshold_photo
+            
+            self.detection_label.configure(image=detection_photo)
+            self.detection_label.image = detection_photo
             
             # Schedule next update
             if hasattr(self, 'root'):
-                self.root.after(100, self._update_plot)
+                self.root.after(100, self._update_plots)
             
         except Exception as e:
-            logger.error(f"Error updating plot: {str(e)}")
+            logger.error(f"Error updating plots: {str(e)}")
+            
+    def _update_detection_history(self, algorithm_detected: bool, llm_detected: bool, confirmed: bool) -> None:
+        """Update the detection history with new values."""
+        try:
+            # Convert boolean values to float (1.0 or 0.0)
+            algorithm_value = 1.0 if algorithm_detected else 0.0
+            llm_value = 1.0 if llm_detected else 0.0
+            confirmed_value = 1.0 if confirmed else 0.0
+            
+            # Add new values to history
+            self.detection_history["algorithm"].append(algorithm_value)
+            self.detection_history["llm"].append(llm_value)
+            self.detection_history["confirmed"].append(confirmed_value)
+            
+            # Keep history length limited
+            for key in self.detection_history:
+                if len(self.detection_history[key]) > self.max_history_length:
+                    self.detection_history[key].pop(0)
+            
+            # Update detection plot
+            x_data = list(range(len(self.detection_history["algorithm"])))
+            for detector in ["algorithm", "llm", "confirmed"]:
+                self.detection_lines[detector].set_data(x_data, self.detection_history[detector])
+            
+            # Adjust axes limits
+            self.ax_detection.relim()
+            self.ax_detection.autoscale_view()
+            
+            # Force redraw of the plot
+            self.fig_detection.canvas.draw()
+            
+        except Exception as e:
+            logger.error(f"Error updating detection history: {str(e)}")
             
     def _draw_threshold_history(self) -> None:
         """Update the matplotlib plots with current threshold history."""
@@ -595,16 +738,7 @@ class OopsieController:
             logger.error(f"Current thresholds: {json.dumps(self.thresholds, indent=2)}")
             
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, bool]:
-        """Process a single frame for fall detection and verification.
-        
-        Args:
-            frame: The video frame to process
-            
-        Returns:
-            Tuple containing:
-            - The processed frame with any warnings
-            - Boolean indicating if a fall was confirmed
-        """
+        """Process a single frame for fall detection and verification."""
         # Reduce frame size by 4x
         height, width = frame.shape[:2]
         frame = cv2.resize(frame, (width // 2, height // 2))
@@ -619,9 +753,14 @@ class OopsieController:
         if results.pose_landmarks:
             frame = self.draw_poi(frame, results.pose_landmarks)
             
+        # Initialize detection status
+        algorithm_detected = False
+        llm_detected = False
+        
         # Check for potential fall
         if results.pose_landmarks:
             potential_fall = self.alert.detect_fall(results.pose_landmarks)
+            algorithm_detected = potential_fall
             threshold_values = None  # Initialize threshold_values
             
             # Additional head-based fall detection with extremely conservative thresholds
@@ -657,6 +796,7 @@ class OopsieController:
                 # This makes it much harder to trigger accidentally
                 if (is_head_tilted and is_head_low and is_head_relative_low and is_head_near_hips):
                     potential_fall = True
+                    algorithm_detected = True
                     threshold_values = {}  # Initialize threshold_values dictionary
                     
                     if is_head_tilted:
@@ -749,7 +889,8 @@ class OopsieController:
                         logger.info(f"LLM Analysis: {analysis}")
                         
                         # Check if LLM confirms the fall
-                        if "CONFIRMED FALL" in analysis.upper():
+                        llm_detected = "CONFIRMED FALL" in analysis.upper()
+                        if llm_detected:
                             logger.info("Fall confirmed by LLM analysis")
                             self.fall_confirmed = True
                             self.current_warning_frames = self.warning_frames
@@ -831,9 +972,28 @@ class OopsieController:
             if self.current_warning_frames == 0:
                 logger.info("Fall warning period ended")
                 self.fall_confirmed = False
-                
+        
         # Update plots after processing frame
         self._draw_threshold_history()
+        
+        # Update detection history
+        self.detection_history["algorithm"].append(1.0 if algorithm_detected else 0.0)
+        self.detection_history["llm"].append(1.0 if llm_detected else 0.0)
+        self.detection_history["confirmed"].append(1.0 if self.fall_confirmed else 0.0)
+        
+        # Keep history length limited
+        for key in self.detection_history:
+            if len(self.detection_history[key]) > self.max_history_length:
+                self.detection_history[key].pop(0)
+        
+        # Update detection plot
+        x_data = list(range(len(self.detection_history["algorithm"])))
+        for detector in ["algorithm", "llm", "confirmed"]:
+            self.detection_lines[detector].set_data(x_data, self.detection_history[detector])
+        
+        # Adjust axes limits
+        self.ax_detection.relim()
+        self.ax_detection.autoscale_view()
         
         return frame, self.fall_confirmed
         
