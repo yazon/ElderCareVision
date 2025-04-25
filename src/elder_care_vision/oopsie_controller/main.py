@@ -20,10 +20,9 @@ def on_algorithm_fall(frame, landmarks, timestamp):
     # Save the frame with timestamp
     timestamp_str = time.strftime("%Y%m%d-%H%M%S", time.localtime(timestamp))
     output_path = f"algorithm_fall_{timestamp_str}.jpg"
-    cv2.imwrite(output_path, frame)
+    ## cv2.imwrite(output_path, frame)
     
     logging.warning(f"⚠️  Algorithm detected potential fall at {timestamp_str}")
-    logging.info(f"Frame saved to: {output_path}")
 
 def on_confirmed_fall(sequence_path, analysis, timestamp):
     """Handle LLM-confirmed falls.

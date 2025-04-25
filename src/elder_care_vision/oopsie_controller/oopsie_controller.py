@@ -977,9 +977,22 @@ class OopsieController:
                 self.queue_status['total_queued'] += 1
                 logger.debug(f"Frame queued. Queue size: {self.frame_queue.qsize()}")
                 
-                # Check for algorithm-detected fall
+                # Check for potential fall
                 if self.alert.detect_fall(results.pose_landmarks):
-                    self._notify_algorithm_fall(frame, results.pose_landmarks, current_time)
+                    current_time = time.time()
+                    if (current_time - self.last_llm_request_time >= self.llm_cooldown and 
+                        self._pose_changed_significantly(results.pose_landmarks)):
+                        
+                        # Notify algorithm fall subscribers at this point
+                        self._notify_algorithm_fall(frame, results.pose_landmarks, current_time)
+                        
+                        logger.info("Potential fall detected! Queueing for LLM analysis...")
+                        
+                        # Create and save frame sequence
+                        sequence_path = self._create_frame_sequence()
+                        if sequence_path:
+                            # Submit analysis task to thread pool
+                            self.thread_pool.submit(self._analyze_fall, sequence_path, results.pose_landmarks)
                     
             except queue.Full:
                 self.queue_status['dropped_frames'] += 1
