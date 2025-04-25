@@ -1,10 +1,11 @@
 """Base class for agents."""
 
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 
 from agents import Agent
 from pydantic import BaseModel
+
 from elder_care_vision.utils.utils import load_config
 
 logger = logging.getLogger(__name__)

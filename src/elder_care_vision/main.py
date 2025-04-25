@@ -4,7 +4,7 @@ import logging
 from dotenv import load_dotenv
 
 from elder_care_vision.config.logging_config import setup_logging
-from elder_care_vision.core.coordinator import CoordinatorAgent
+from elder_care_vision.core.coordinator import Coordinator
 
 load_dotenv()
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 async def main() -> None:
     logger.info("Starting Elder Care Vision system...")
-    coordinator = CoordinatorAgent()
+    coordinator = Coordinator()
     await coordinator.run()
 
 

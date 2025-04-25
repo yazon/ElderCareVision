@@ -1,19 +1,21 @@
 """Module for handling ADB calls and call status monitoring."""
 
-import time
 import logging
+import time
 from enum import Enum
-from typing import Optional
 
 from ppadb.client import Client as AdbClient
+
 from elder_care_vision.config.logging_config import setup_logging
 
 setup_logging()
 
 logger = logging.getLogger(__name__)
 
+
 class CallStatus(Enum):
     """Enum representing different call states."""
+
     IDLE = "idle"
     DIALING = "dialing"
     RINGING = "ringing"
@@ -70,9 +72,7 @@ class ADBPhoneCallManager:
                         current_status = CallStatus.IDLE
                     elif state_code == "1":
                         current_status = CallStatus.ACTIVE
-                    elif state_code == "3":
-                        current_status = CallStatus.DIALING
-                    elif state_code == "4":
+                    elif state_code == "3" or state_code == "4":
                         current_status = CallStatus.DIALING
 
                     self._last_status = current_status

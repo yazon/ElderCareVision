@@ -11,8 +11,8 @@
         "person_state_analyzer": {
             "model": "o4-mini",
             "temperature": 0.7,
-            "confidence_threshold_1": 50,
-            "confidence_threshold_2": 80,
+            "confidence_threshold_1": 80,
+            "confidence_threshold_2": 50,
             "health_statuses": ["healthy", "not_healthy", "needs_help"]
         }
     },

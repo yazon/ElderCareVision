@@ -1,7 +1,8 @@
 """Tests for the ADBPhoneCallManager class."""
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch
 
 from elder_care_vision.call_system.call_system import ADBPhoneCallManager, CallStatus
 
@@ -44,9 +45,7 @@ def test_make_call_success(phone_manager, mock_adb):
     """Test successful call initiation."""
     phone_number = "1234567890"
     assert phone_manager.make_call(phone_number) is True
-    mock_adb.return_value.shell.assert_called_once_with(
-        f"am start -a android.intent.action.CALL -d tel:{phone_number}"
-    )
+    mock_adb.return_value.shell.assert_called_once_with(f"am start -a android.intent.action.CALL -d tel:{phone_number}")
 
 
 def test_make_call_invalid_number(phone_manager):
@@ -118,4 +117,4 @@ def test_wait_for_call_status_timeout(phone_manager, mock_adb):
 def test_wait_for_call_status_exception(phone_manager, mock_adb):
     """Test wait for call status when ADB command fails."""
     mock_adb.return_value.shell.side_effect = Exception("ADB error")
-    assert phone_manager.wait_for_call_status(CallStatus.ACTIVE, timeout=1) is False 
+    assert phone_manager.wait_for_call_status(CallStatus.ACTIVE, timeout=1) is False
