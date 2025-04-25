@@ -22,6 +22,7 @@ from PIL import Image, ImageTk
 import threading
 import io
 import queue
+from concurrent.futures import ThreadPoolExecutor
 
 from .oopsie_alert.oopsie_alert import FallDetector
 from .oopsie_nanny.oopsie_nanny import ImageRecognizer
@@ -115,12 +116,24 @@ class OopsieController:
         max_history_frames: Number of frames to keep in history
         frame_interval: Seconds between frames (6 frames in 3 seconds)
         last_frame_time: Track last frame time
+        frame_queue: Queue for incoming frames
+        analysis_queue: Queue for analysis results
+        thread_pool: ThreadPoolExecutor for analysis tasks
+        is_analyzing: Boolean to track analysis status
+        queue_status: Dictionary to store queue status
     """
     
     def __init__(self):
         """Initialize the OopsieController with its components."""
         self.alert = FallDetector()
         self.nanny = ImageRecognizer()
+        
+        # Initialize frame history
+        self.frame_history = []  # Store last 6 frames
+        self.frame_timestamps = []  # Store timestamps for each frame
+        self.max_history_frames = 6  # Number of frames to keep in history
+        self.frame_interval = 0.5  # Seconds between frames (6 frames in 3 seconds)
+        self.last_frame_time = 0  # Track last frame time
         
         # Load thresholds from config file
         config_path = Path(__file__).parent / "config" / "thresholds.json"
@@ -303,12 +316,20 @@ class OopsieController:
         # Track last values to avoid unnecessary updates
         self.last_values = {metric: None for metric in metrics}
         
-        # Initialize frame history with more precise timing
-        self.frame_history = []  # Store last 6 frames
-        self.frame_timestamps = []  # Store timestamps for each frame
-        self.max_history_frames = 6  # Number of frames to keep in history
-        self.frame_interval = 0.5  # Seconds between frames (6 frames in 3 seconds)
-        self.last_frame_time = 0  # Track last frame time
+        # Initialize queues and thread pool
+        self.frame_queue = queue.Queue(maxsize=30)  # Max 30 frames in queue
+        self.analysis_queue = queue.Queue()  # Queue for analysis results
+        self.thread_pool = ThreadPoolExecutor(max_workers=2)  # 2 worker threads for analysis
+        self.is_analyzing = False
+        self.queue_status = {
+            'total_queued': 0,
+            'total_processed': 0,
+            'dropped_frames': 0
+        }
+
+        # Start analysis worker thread
+        self.analysis_thread = threading.Thread(target=self._analysis_worker, daemon=True)
+        self.analysis_thread.start()
         
         logger.info("OopsieController initialized and ready for fall detection")
         
@@ -368,6 +389,9 @@ class OopsieController:
             
             # Start periodic updates
             self._update_plots()
+            
+            # Start queue status updates
+            self._update_queue_status()
             
             # Start the tkinter event loop
             self.root.mainloop()
@@ -899,8 +923,94 @@ class OopsieController:
             logger.error(f"Error creating frame sequence: {str(e)}")
             return None
 
+    def _analysis_worker(self):
+        """Worker thread that processes frames from the queue."""
+        while True:
+            try:
+                # Get frame data from queue
+                frame_data = self.frame_queue.get()
+                if frame_data is None:  # Sentinel value to stop the thread
+                    break
+
+                frame, landmarks, timestamp = frame_data
+                self.queue_status['total_processed'] += 1
+
+                # Check for potential fall
+                if landmarks is not None:
+                    potential_fall = self.alert.detect_fall(landmarks)
+                    if potential_fall and not self.fall_confirmed:
+                        current_time = time.time()
+                        if (current_time - self.last_llm_request_time >= self.llm_cooldown and 
+                            self._pose_changed_significantly(landmarks)):
+                            
+                            logger.info("Potential fall detected! Queueing for LLM analysis...")
+                            
+                            # Create and save frame sequence
+                            sequence_path = self._create_frame_sequence()
+                            if sequence_path:
+                                # Submit analysis task to thread pool
+                                self.thread_pool.submit(self._analyze_fall, sequence_path, landmarks)
+
+                self.frame_queue.task_done()
+
+            except Exception as e:
+                logger.error(f"Error in analysis worker: {str(e)}")
+
+    def _analyze_fall(self, sequence_path: str, landmarks):
+        """Analyze potential fall in a separate thread."""
+        try:
+            # Calculate threshold values
+            threshold_values = self._calculate_threshold_values(landmarks)
+            
+            # Get LLM analysis
+            analysis = self.nanny.analyze_image(sequence_path, threshold_values)
+            logger.info(f"LLM Analysis: {analysis}")
+            
+            # Put result in analysis queue
+            self.analysis_queue.put((analysis, threshold_values))
+            
+        except Exception as e:
+            logger.error(f"Error during fall analysis: {str(e)}")
+        finally:
+            # Clean up temp file
+            Path(sequence_path).unlink(missing_ok=True)
+            self.last_llm_request_time = time.time()
+
+    def _calculate_threshold_values(self, landmarks):
+        """Calculate threshold values for fall detection."""
+        # ... (implement threshold calculations)
+        return {}
+
+    def _update_queue_status(self):
+        """Update queue status display in tkinter window."""
+        if hasattr(self, 'root'):
+            status_text = (
+                f"Queue Status:\n"
+                f"Frames Queued: {self.frame_queue.qsize()}\n"
+                f"Total Queued: {self.queue_status['total_queued']}\n"
+                f"Total Processed: {self.queue_status['total_processed']}\n"
+                f"Dropped Frames: {self.queue_status['dropped_frames']}"
+            )
+            
+            # Create status label if it doesn't exist
+            if not hasattr(self, 'queue_status_label'):
+                self.queue_status_label = tk.Label(
+                    self.root,
+                    text=status_text,
+                    bg='#1e1e1e',
+                    fg='white',
+                    font=('Courier', 10),
+                    justify=tk.LEFT
+                )
+                self.queue_status_label.pack(side=tk.BOTTOM, padx=10, pady=10)
+            else:
+                self.queue_status_label.config(text=status_text)
+
+            # Schedule next update
+            self.root.after(100, self._update_queue_status)
+
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, bool]:
-        """Process a single frame for fall detection and verification."""
+        """Process a single frame for fall detection."""
         # Reduce frame size by 4x
         height, width = frame.shape[:2]
         frame = cv2.resize(frame, (width // 2, height // 2))
@@ -911,225 +1021,48 @@ class OopsieController:
         # Process with MediaPipe pose detection
         results = self.alert.pose.process(rgb_frame)
         
+        # Update frame history
+        current_time = time.time()
+        self.frame_history.append(frame.copy())
+        self.frame_timestamps.append(current_time)
+        
+        # Keep only the last N frames
+        if len(self.frame_history) > self.max_history_frames:
+            self.frame_history.pop(0)
+            self.frame_timestamps.pop(0)
+        
         # Draw POI if person is detected
         if results.pose_landmarks:
             frame = self.draw_poi(frame, results.pose_landmarks)
             
-        # Initialize detection status
-        algorithm_detected = False
-        llm_detected = False
-        
-        # Check for potential fall
-        if results.pose_landmarks:
-            potential_fall = self.alert.detect_fall(results.pose_landmarks)
-            algorithm_detected = potential_fall
-            threshold_values = None  # Initialize threshold_values
-            
-            # Additional head-based fall detection with extremely conservative thresholds
-            if not potential_fall:
-                # Get head landmarks
-                nose = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.NOSE]
-                left_ear = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_EAR]
-                right_ear = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_EAR]
+            # Try to add frame to queue, drop if full
+            try:
+                frame_data = (frame.copy(), results.pose_landmarks, current_time)
+                self.frame_queue.put_nowait(frame_data)
+                self.queue_status['total_queued'] += 1
+                logger.debug(f"Frame queued. Queue size: {self.frame_queue.qsize()}")
+            except queue.Full:
+                self.queue_status['dropped_frames'] += 1
+                logger.warning("Frame queue full, dropping frame")
+
+        # Check for analysis results
+        try:
+            while not self.analysis_queue.empty():
+                analysis, threshold_values = self.analysis_queue.get_nowait()
                 
-                # Get shoulder and hip positions for comprehensive checks
-                left_shoulder = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_SHOULDER]
-                right_shoulder = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_SHOULDER]
-                left_hip = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_HIP]
-                right_hip = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_HIP]
+                # Process analysis result
+                if "CONFIRMED FALL" in analysis.upper():
+                    logger.info("Fall confirmed by LLM analysis")
+                    self.fall_confirmed = True
+                    self.current_warning_frames = self.warning_frames
                 
-                # Calculate various position metrics
-                head_center_y = (left_ear.y + right_ear.y) * 0.5
-                shoulder_center_y = (left_shoulder.y + right_shoulder.y) * 0.5
-                hip_center_y = (left_hip.y + right_hip.y) * 0.5
-                
-                # Calculate ratios with extremely conservative thresholds
-                head_to_nose_ratio = abs(nose.y - head_center_y) / abs(left_ear.x - right_ear.x)
-                head_to_shoulder_ratio = abs(head_center_y - shoulder_center_y) / abs(left_shoulder.x - right_shoulder.x)
-                head_to_hip_ratio = abs(head_center_y - hip_center_y) / abs(left_hip.x - right_hip.x)
-                
-                # Extremely conservative thresholds for head position
-                is_head_tilted = head_to_nose_ratio > self.thresholds["head_detection"]["tilt_threshold"]
-                is_head_low = head_center_y > self.alert.fall_threshold + self.thresholds["head_detection"]["position_threshold"]
-                is_head_relative_low = head_to_shoulder_ratio > self.thresholds["head_detection"]["shoulder_ratio_threshold"]
-                is_head_near_hips = head_to_hip_ratio < self.thresholds["head_detection"]["hip_ratio_threshold"]
-                
-                # Only consider it a potential fall if ALL conditions are met
-                # This makes it much harder to trigger accidentally
-                if (is_head_tilted and is_head_low and is_head_relative_low and is_head_near_hips):
-                    potential_fall = True
-                    algorithm_detected = True
-                    threshold_values = {}  # Initialize threshold_values dictionary
-                    
-                    if is_head_tilted:
-                        threshold_values["tilt"] = {
-                            "current": head_to_nose_ratio,
-                            "threshold": self.thresholds["head_detection"]["tilt_threshold"]
-                        }
-                    if is_head_low:
-                        threshold_values["position"] = {
-                            "current": head_center_y,
-                            "threshold": self.alert.fall_threshold + self.thresholds["head_detection"]["position_threshold"]
-                        }
-                    if is_head_relative_low:
-                        threshold_values["shoulder_ratio"] = {
-                            "current": head_to_shoulder_ratio,
-                            "threshold": self.thresholds["head_detection"]["shoulder_ratio_threshold"]
-                        }
-                    if is_head_near_hips:
-                        threshold_values["hip_ratio"] = {
-                            "current": head_to_hip_ratio,
-                            "threshold": self.thresholds["head_detection"]["hip_ratio_threshold"]
-                        }
-                    
-                    logger.info(f"Potential fall detected based on head position. Triggered thresholds: {', '.join(threshold_values.keys())}")
-                else:
-                    logger.debug(f"Head position normal: tilt={head_to_nose_ratio:.2f}, low={is_head_low}, relative={head_to_shoulder_ratio:.2f}, hip={head_to_hip_ratio:.2f}")
-                
-                # Draw threshold information on frame
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                font_scale = 0.4
-                thickness = 1
-                color = (0, 255, 0)  # Green for normal values
-                
-                # Draw current values
-                y_offset = 20
-                # Use red color if threshold is exceeded, green otherwise
-                tilt_color = (0, 0, 255) if is_head_tilted else (0, 255, 0)
-                cv2.putText(frame, f"Tilt: {head_to_nose_ratio:.2f} / {self.thresholds['head_detection']['tilt_threshold']:.2f}", 
-                           (10, y_offset), font, font_scale, tilt_color, thickness)
-                y_offset += 20
-                
-                # Use red color if threshold is exceeded, green otherwise
-                position_color = (0, 0, 255) if is_head_low else (0, 255, 0)
-                cv2.putText(frame, f"Position: {head_center_y:.2f} / {self.alert.fall_threshold + self.thresholds['head_detection']['position_threshold']:.2f}", 
-                           (10, y_offset), font, font_scale, position_color, thickness)
-                y_offset += 20
-                
-                # Use red color if threshold is exceeded, green otherwise
-                shoulder_color = (0, 0, 255) if is_head_relative_low else (0, 255, 0)
-                cv2.putText(frame, f"Shoulder Ratio: {head_to_shoulder_ratio:.2f} / {self.thresholds['head_detection']['shoulder_ratio_threshold']:.2f}", 
-                           (10, y_offset), font, font_scale, shoulder_color, thickness)
-                y_offset += 20
-                
-                # Use red color if threshold is exceeded, green otherwise
-                hip_color = (0, 0, 255) if is_head_near_hips else (0, 255, 0)
-                cv2.putText(frame, f"Hip Ratio: {head_to_hip_ratio:.2f} / {self.thresholds['head_detection']['hip_ratio_threshold']:.2f}", 
-                           (10, y_offset), font, font_scale, hip_color, thickness)
-                
-                # Add warning text for exceeded thresholds
-                y_offset += 20
-                if is_head_tilted:
-                    cv2.putText(frame, "TILT EXCEEDED", (150, y_offset), font, font_scale, (0, 0, 255), thickness)
-                    y_offset += 20
-                if is_head_low:
-                    cv2.putText(frame, "POSITION EXCEEDED", (150, y_offset), font, font_scale, (0, 0, 255), thickness)
-                    y_offset += 20
-                if is_head_relative_low:
-                    cv2.putText(frame, "SHOULDER RATIO EXCEEDED", (150, y_offset), font, font_scale, (0, 0, 255), thickness)
-                    y_offset += 20
-                if is_head_near_hips:
-                    cv2.putText(frame, "HIP RATIO EXCEEDED", (150, y_offset), font, font_scale, (0, 0, 255), thickness)
-                
-                # Draw threshold history on the right side
-                self._draw_threshold_history()
-            
-            if potential_fall and not self.fall_confirmed:
-                # Check cooldown and pose change
-                current_time = time.time()
-                if (current_time - self.last_llm_request_time >= self.llm_cooldown and 
-                    self._pose_changed_significantly(results.pose_landmarks)):
-                    
-                    logger.info("Potential fall detected! Waiting for LLM confirmation...")
-                    
-                    # Create and save frame sequence
-                    sequence_path = self._create_frame_sequence()
-                    if sequence_path is None:
-                        logger.warning("Not enough frames in history for sequence analysis")
-                        return frame, self.fall_confirmed
-                    
-                    try:
-                        # Get LLM analysis with frame sequence and threshold information
-                        analysis = self.nanny.analyze_image(sequence_path, threshold_values)
-                        logger.info(f"LLM Analysis: {analysis}")
-                        
-                        # Check if LLM confirms the fall
-                        llm_detected = "CONFIRMED FALL" in analysis.upper()
-                        if llm_detected:
-                            logger.info("Fall confirmed by LLM analysis")
-                            self.fall_confirmed = True
-                            self.current_warning_frames = self.warning_frames
-                        else:
-                            logger.info("Fall not confirmed by LLM analysis")
-                            
-                            # Check for threshold adjustment suggestions
-                            if "THRESHOLD_ADJUSTMENT:" in analysis:
-                                try:
-                                    # Extract threshold adjustments from the analysis
-                                    adjustment_text = analysis.split("THRESHOLD_ADJUSTMENT:")[1].strip()
-                                    
-                                    # Handle JSON in markdown code blocks
-                                    if "```json" in adjustment_text:
-                                        # Extract JSON from code block
-                                        json_start = adjustment_text.find("```json") + 7
-                                        json_end = adjustment_text.find("```", json_start)
-                                        if json_end != -1:
-                                            adjustment_text = adjustment_text[json_start:json_end].strip()
-                                    else:
-                                        # Find the start of the JSON (first '{')
-                                        json_start = adjustment_text.find("{")
-                                        if json_start != -1:
-                                            # Find the matching closing brace
-                                            brace_count = 0
-                                            for i in range(json_start, len(adjustment_text)):
-                                                if adjustment_text[i] == "{":
-                                                    brace_count += 1
-                                                elif adjustment_text[i] == "}":
-                                                    brace_count -= 1
-                                                    if brace_count == 0:
-                                                        adjustment_text = adjustment_text[json_start:i+1]
-                                                        break
-                                    
-                                    # Remove any newlines and extra spaces
-                                    adjustment_text = " ".join(adjustment_text.split())
-                                    
-                                    # Debug log the extracted JSON
-                                    logger.debug(f"Extracted JSON: {adjustment_text}")
-                                    
-                                    # Parse the JSON
-                                    adjustments = json.loads(adjustment_text)
-                                    
-                                    # Ensure adjustments are properly categorized
-                                    if "head_detection" not in adjustments:
-                                        # If we have root level thresholds, move them under head_detection
-                                        head_detection_adjustments = {}
-                                        for key in ["tilt_threshold", "position_threshold", "shoulder_ratio_threshold", "hip_ratio_threshold"]:
-                                            if key in adjustments:
-                                                head_detection_adjustments[key] = adjustments.pop(key)
-                                        if head_detection_adjustments:
-                                            adjustments["head_detection"] = head_detection_adjustments
-                                    
-                                    # Log the parsed adjustments
-                                    logger.debug(f"Parsed adjustments: {json.dumps(adjustments, indent=2)}")
-                                    
-                                    # Apply adjustments with auto-update checks
-                                    self._apply_threshold_adjustments(adjustments)
-                                    
-                                except json.JSONDecodeError as e:
-                                    logger.error(f"Failed to parse threshold adjustments JSON: {str(e)}")
-                                    logger.debug(f"Raw adjustment text: {adjustment_text}")
-                                except Exception as e:
-                                    logger.error(f"Failed to process threshold adjustments: {str(e)}")
-                    except Exception as e:
-                        logger.error(f"Error during LLM analysis: {str(e)}")
-                    finally:
-                        # Clean up temp file
-                        Path(sequence_path).unlink(missing_ok=True)
-                        # Update last request time
-                        self.last_llm_request_time = current_time
-                else:
-                    logger.debug("Skipping LLM request due to cooldown or unchanged pose")
-        
+                # Check for threshold adjustments
+                if "THRESHOLD_ADJUSTMENT:" in analysis:
+                    self._process_threshold_adjustment(analysis)
+
+        except queue.Empty:
+            pass
+
         # Add warning overlay if fall is confirmed
         if self.fall_confirmed and self.current_warning_frames > 0:
             frame = self.alert.add_warning_overlay(frame)
@@ -1137,62 +1070,19 @@ class OopsieController:
             if self.current_warning_frames == 0:
                 logger.info("Fall warning period ended")
                 self.fall_confirmed = False
-        
-        # Update plots after processing frame
-        self._draw_threshold_history()
-        
-        # Update detection history
-        self.detection_history["algorithm"].append(1.0 if algorithm_detected else 0.0)
-        self.detection_history["llm"].append(1.0 if llm_detected else 0.0)
-        self.detection_history["confirmed"].append(1.0 if self.fall_confirmed else 0.0)
-        
-        # Update error counters
-        if algorithm_detected:
-            self.error_counters["algorithm"] += 1
-        if llm_detected:
-            self.error_counters["llm"] += 1
-        if self.fall_confirmed:
-            self.error_counters["confirmed"] += 1
-        
-        # Keep history length limited
-        for key in self.detection_history:
-            if len(self.detection_history[key]) > self.max_history_length:
-                self.detection_history[key].pop(0)
-        
-        # Update detection plot
-        x_data = list(range(len(self.detection_history["algorithm"])))
-        for detector in ["algorithm", "llm", "confirmed"]:
-            self.detection_lines[detector].set_data(x_data, self.detection_history[detector])
-        
-        # Update error counter text
-        error_text = f"Total Detections:\nAlgorithm: {self.error_counters['algorithm']}\nLLM: {self.error_counters['llm']}\nConfirmed: {self.error_counters['confirmed']}"
-        self.error_text.set_text(error_text)
-        
-        # Adjust axes limits
-        self.ax_detection.relim()
-        self.ax_detection.autoscale_view()
-        
-        # Update frame history with precise timing
-        current_time = time.time()
-        
-        # Only add frame if enough time has passed since last frame
-        if current_time - self.last_frame_time >= self.frame_interval:
-            # Add new frame to history
-            self.frame_history.append(frame.copy())
-            self.frame_timestamps.append(current_time)
-            self.last_frame_time = current_time
-            
-            # Remove old frames if needed
-            while len(self.frame_history) > self.max_history_frames:
-                self.frame_history.pop(0)
-                self.frame_timestamps.pop(0)
-            
-            # Create sequence image if we have enough frames
-            if len(self.frame_history) == self.max_history_frames:
-                self._create_frame_sequence()
-        
+
         return frame, self.fall_confirmed
+
+    def __del__(self):
+        """Cleanup when the controller is destroyed."""
+        # Stop analysis worker
+        if hasattr(self, 'frame_queue'):
+            self.frame_queue.put(None)
         
+        # Shutdown thread pool
+        if hasattr(self, 'thread_pool'):
+            self.thread_pool.shutdown(wait=True)
+
     def process_video(self, video_path: str) -> None:
         """Process a video file for fall detection.
         
@@ -1217,6 +1107,9 @@ class OopsieController:
                 frame_count += 1
                 if frame_count % 30 == 0:  # Log every 30 frames
                     logger.debug(f"Processing frame {frame_count}")
+                    logger.info(f"Queue Status - Size: {self.frame_queue.qsize()}, " +
+                              f"Processed: {self.queue_status['total_processed']}, " +
+                              f"Dropped: {self.queue_status['dropped_frames']}")
                     
                 # Process frame
                 processed_frame, fall_detected = self.process_frame(frame)
@@ -1228,12 +1121,20 @@ class OopsieController:
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     logger.info("Video processing stopped by user")
                     break
+                    
+                # Small delay to allow queue processing
+                time.sleep(0.001)
+                
         finally:
             self.is_processing_video = False
             cap.release()
             cv2.destroyAllWindows()
+            
+            # Wait for remaining frames to be processed
+            logger.info("Waiting for remaining frames to be processed...")
+            self.frame_queue.join()
             logger.info("Video processing completed")
-        
+            
     def process_image(self, image_path: str) -> Tuple[np.ndarray, bool]:
         """Process a single image for fall detection.
         

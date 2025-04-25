@@ -1,7 +1,7 @@
 {
     "head_detection": {
-        "tilt_threshold": 2.5,
-        "position_threshold": 0.44000000000000006,
+        "tilt_threshold": 2.25,
+        "position_threshold": 0.4,
         "shoulder_ratio_threshold": 2.5,
         "hip_ratio_threshold": 1.35
     },
