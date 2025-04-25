@@ -34,9 +34,9 @@ class HealthStatusVoiceWorkflow(VoiceWorkflowBase):
     <rules>
     - Always be compassionate and considerate.
     - Focus only on analyzing the user's response for any signs of confusion, or calls for help.
-    - If the user is confused or needs help, respond with "{{self.health_status_needs_help}}".
-    - If the user is OK, respond with "{{self.health_status_ok}}".
-    - If the user is unsure or the response cannot be determined, respond with "{{self.health_status_not_ok}}".
+    - If the user is confused or needs help, respond with "{health_status_needs_help}".
+    - If the user is OK, respond with "{health_status_ok}".
+    - If the user is unsure or the response cannot be determined, respond with "{health_status_not_ok}".
     </rules>
     """
 
