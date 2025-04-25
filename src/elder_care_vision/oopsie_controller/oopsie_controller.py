@@ -110,6 +110,10 @@ class OopsieController:
         detection_history: Dictionary to store detection history
         detection_lines: Dictionary to store detection lines
         error_counters: Dictionary to store error counters
+        frame_history: List to store last 6 frames
+        frame_timestamps: List to store timestamps for each frame
+        max_history_frames: Number of frames to keep in history
+        frame_interval: Seconds between frames (6 frames in 3 seconds)
     """
     
     def __init__(self):
@@ -181,9 +185,9 @@ class OopsieController:
             "confirmed": 0   # Total confirmed falls
         }
         
-        # Initialize matplotlib figures with smaller sizes
-        self.fig_thresholds, self.axs_thresholds = plt.subplots(2, 2, figsize=(8, 6))
-        self.fig_detection, self.ax_detection = plt.subplots(figsize=(8, 3))
+        # Initialize matplotlib figures with smaller sizes (30% smaller)
+        self.fig_thresholds, self.axs_thresholds = plt.subplots(2, 2, figsize=(5.6, 4.2))  # 30% smaller
+        self.fig_detection, self.ax_detection = plt.subplots(figsize=(5.6, 2.1))  # 30% smaller
         
         # Configure threshold plots
         self.fig_thresholds.suptitle("Threshold History", fontsize=12)
@@ -298,6 +302,12 @@ class OopsieController:
         # Track last values to avoid unnecessary updates
         self.last_values = {metric: None for metric in metrics}
         
+        # Initialize frame history
+        self.frame_history = []  # Store last 6 frames
+        self.frame_timestamps = []  # Store timestamps for each frame
+        self.max_history_frames = 6  # Number of frames to keep in history
+        self.frame_interval = 0.5  # Seconds between frames (6 frames in 3 seconds)
+        
         logger.info("OopsieController initialized and ready for fall detection")
         
     def _run_plot_window(self) -> None:
@@ -306,19 +316,31 @@ class OopsieController:
             # Create tkinter window
             self.root = tk.Tk()
             self.root.title("Fall Detection Monitor")
-            self.root.geometry("800x600")  # Reduced window size
+            self.root.geometry("880x880")  # 10% bigger window
             self.root.configure(bg='#1e1e1e')
             
             # Create main frame
             main_frame = tk.Frame(self.root, bg='#1e1e1e')
             main_frame.pack(fill=tk.BOTH, expand=True)
             
-            # Create plot frames
-            threshold_frame = tk.Frame(main_frame, bg='#1e1e1e')
+            # Create left frame for plots
+            left_frame = tk.Frame(main_frame, bg='#1e1e1e')
+            left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            
+            # Create right frame for sequence
+            right_frame = tk.Frame(main_frame, bg='#1e1e1e')
+            right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+            
+            # Create plot frames in left frame
+            threshold_frame = tk.Frame(left_frame, bg='#1e1e1e')
             threshold_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
             
-            detection_frame = tk.Frame(main_frame, bg='#1e1e1e')
-            detection_frame.pack(fill=tk.BOTH, expand=True, side=tk.BOTTOM)
+            detection_frame = tk.Frame(left_frame, bg='#1e1e1e')
+            detection_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
+            
+            # Create sequence frame in right frame
+            sequence_frame = tk.Frame(right_frame, bg='#1e1e1e')
+            sequence_frame.pack(fill=tk.BOTH, expand=True)
             
             # Create labels for plot images
             self.threshold_label = tk.Label(threshold_frame, bg='#1e1e1e')
@@ -326,6 +348,10 @@ class OopsieController:
             
             self.detection_label = tk.Label(detection_frame, bg='#1e1e1e')
             self.detection_label.pack(fill=tk.BOTH, expand=True)
+            
+            # Create label for sequence image
+            self.sequence_label = tk.Label(sequence_frame, bg='#1e1e1e')
+            self.sequence_label.pack(fill=tk.BOTH, expand=True)
             
             # Start periodic updates
             self._update_plots()
@@ -363,6 +389,49 @@ class OopsieController:
             
             self.detection_label.configure(image=detection_photo)
             self.detection_label.image = detection_photo
+            
+            # Update sequence image if available
+            if hasattr(self, 'last_sequence_path') and Path(self.last_sequence_path).exists():
+                sequence_image = Image.open(self.last_sequence_path)
+                
+                # Calculate target size maintaining aspect ratio
+                target_width = 440  # Half of window width
+                target_height = 880  # Full window height
+                
+                # Get original dimensions
+                orig_width, orig_height = sequence_image.size
+                
+                # Calculate aspect ratios
+                target_ratio = target_width / target_height
+                orig_ratio = orig_width / orig_height
+                
+                # Calculate new dimensions maintaining aspect ratio
+                if orig_ratio > target_ratio:
+                    # Image is wider than target ratio
+                    new_width = target_width
+                    new_height = int(target_width / orig_ratio)
+                else:
+                    # Image is taller than target ratio
+                    new_height = target_height
+                    new_width = int(target_height * orig_ratio)
+                
+                # Resize image maintaining aspect ratio
+                sequence_image = sequence_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                
+                # Create a new image with black background
+                final_image = Image.new('RGB', (target_width, target_height), (30, 30, 30))
+                
+                # Calculate position to center the image
+                x = (target_width - new_width) // 2
+                y = (target_height - new_height) // 2
+                
+                # Paste the resized image onto the center of the black background
+                final_image.paste(sequence_image, (x, y))
+                
+                # Convert to PhotoImage
+                sequence_photo = ImageTk.PhotoImage(final_image)
+                self.sequence_label.configure(image=sequence_photo)
+                self.sequence_label.image = sequence_photo
             
             # Schedule next update
             if hasattr(self, 'root'):
@@ -752,6 +821,48 @@ class OopsieController:
             logger.error(f"Adjustments attempted: {json.dumps(adjustments, indent=2)}")
             logger.error(f"Current thresholds: {json.dumps(self.thresholds, indent=2)}")
             
+    def _create_frame_sequence(self) -> Optional[str]:
+        """Create a sequence image from frame history with timestamps.
+        
+        Returns:
+            Path to the saved sequence image, or None if not enough frames
+        """
+        if len(self.frame_history) < self.max_history_frames:
+            return None
+            
+        # Calculate dimensions for the sequence image
+        frame_height, frame_width = self.frame_history[0].shape[:2]
+        sequence_width = frame_width * 3  # 3 frames per row
+        sequence_height = frame_height * 2  # 2 rows
+        
+        # Create blank image for the sequence
+        sequence = np.zeros((sequence_height, sequence_width, 3), dtype=np.uint8)
+        
+        # Add frames to sequence with timestamps
+        for i, (frame, timestamp) in enumerate(zip(self.frame_history, self.frame_timestamps)):
+            row = i // 3
+            col = i % 3
+            y_start = row * frame_height
+            x_start = col * frame_width
+            
+            # Add frame to sequence
+            sequence[y_start:y_start + frame_height, x_start:x_start + frame_width] = frame
+            
+            # Add timestamp
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.5
+            thickness = 1
+            timestamp_str = f"t-{3 - (i * self.frame_interval):.1f}s"
+            cv2.putText(sequence, timestamp_str, 
+                       (x_start + 10, y_start + frame_height - 10),
+                       font, font_scale, (255, 255, 255), thickness)
+        
+        # Save sequence image
+        sequence_path = "temp_frame_sequence.jpg"
+        cv2.imwrite(sequence_path, sequence)
+        self.last_sequence_path = sequence_path  # Store path for display
+        return sequence_path
+
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, bool]:
         """Process a single frame for fall detection and verification."""
         # Reduce frame size by 4x
@@ -894,13 +1005,16 @@ class OopsieController:
                     self._pose_changed_significantly(results.pose_landmarks)):
                     
                     logger.info("Potential fall detected! Waiting for LLM confirmation...")
-                    # Save frame for LLM analysis
-                    temp_path = "temp_fall_frame.jpg"
-                    cv2.imwrite(temp_path, frame)
+                    
+                    # Create and save frame sequence
+                    sequence_path = self._create_frame_sequence()
+                    if sequence_path is None:
+                        logger.warning("Not enough frames in history for sequence analysis")
+                        return frame, self.fall_confirmed
                     
                     try:
-                        # Get LLM analysis with threshold information
-                        analysis = self.nanny.analyze_image(temp_path, threshold_values)
+                        # Get LLM analysis with frame sequence and threshold information
+                        analysis = self.nanny.analyze_image(sequence_path, threshold_values)
                         logger.info(f"LLM Analysis: {analysis}")
                         
                         # Check if LLM confirms the fall
@@ -974,7 +1088,7 @@ class OopsieController:
                         logger.error(f"Error during LLM analysis: {str(e)}")
                     finally:
                         # Clean up temp file
-                        Path(temp_path).unlink(missing_ok=True)
+                        Path(sequence_path).unlink(missing_ok=True)
                         # Update last request time
                         self.last_llm_request_time = current_time
                 else:
@@ -1021,6 +1135,16 @@ class OopsieController:
         # Adjust axes limits
         self.ax_detection.relim()
         self.ax_detection.autoscale_view()
+        
+        # Update frame history
+        current_time = time.time()
+        self.frame_history.append(frame.copy())
+        self.frame_timestamps.append(current_time)
+        
+        # Remove old frames if needed
+        while len(self.frame_history) > self.max_history_frames:
+            self.frame_history.pop(0)
+            self.frame_timestamps.pop(0)
         
         return frame, self.fall_confirmed
         
