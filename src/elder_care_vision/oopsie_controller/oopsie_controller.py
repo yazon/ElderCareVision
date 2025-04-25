@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 import logging
 import time
+import json
 
 from .oopsie_alert.oopsie_alert import FallDetector
 from .oopsie_nanny.oopsie_nanny import ImageRecognizer
@@ -38,18 +39,46 @@ class OopsieController:
         last_llm_request_time: Timestamp of the last LLM request
         llm_cooldown: Minimum seconds between LLM requests
         last_pose_data: Store of the last processed pose data
+        thresholds: Configuration values loaded from JSON
     """
     
     def __init__(self):
         """Initialize the OopsieController with its components."""
         self.alert = FallDetector()
         self.nanny = ImageRecognizer()
-        self.warning_frames = 5
+        
+        # Load thresholds from config file
+        config_path = Path(__file__).parent / "config" / "thresholds.json"
+        try:
+            with open(config_path, "r") as f:
+                self.thresholds = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load thresholds from config file: {str(e)}")
+            # Set default values if config file fails to load
+            self.thresholds = {
+                "head_detection": {
+                    "tilt_threshold": 2.0,
+                    "position_threshold": 0.3,
+                    "shoulder_ratio_threshold": 2.0,
+                    "hip_ratio_threshold": 1.5
+                },
+                "pose_detection": {
+                    "movement_threshold": 0.15
+                },
+                "llm": {
+                    "cooldown_seconds": 5
+                },
+                "warning": {
+                    "frames": 5
+                }
+            }
+            
+        self.warning_frames = self.thresholds["warning"]["frames"]
         self.current_warning_frames = 0
         self.fall_confirmed = False
         self.is_processing_video = False
         self.last_llm_request_time = 0
-        self.llm_cooldown = 5  # 5 seconds cooldown between LLM requests
+        self.llm_cooldown = self.thresholds["llm"]["cooldown_seconds"]
         self.last_pose_data = None
         logger.info("OopsieController initialized and ready for fall detection")
         
@@ -205,8 +234,8 @@ class OopsieController:
             'nose_y': self.last_pose_data.landmark[self.alert.mp_pose.PoseLandmark.NOSE].y
         }
         
-        # Check if any key point has moved significantly (more than 15% of frame height)
-        threshold = 0.15  # Increased from 0.1 to 0.15 for less sensitivity
+        # Check if any key point has moved significantly
+        threshold = self.thresholds["pose_detection"]["movement_threshold"]
         shoulder_diff = abs(current_points['shoulder_y'] - last_points['shoulder_y'])
         hip_diff = abs(current_points['hip_y'] - last_points['hip_y'])
         nose_diff = abs(current_points['nose_y'] - last_points['nose_y'])
@@ -247,37 +276,52 @@ class OopsieController:
         if results.pose_landmarks:
             potential_fall = self.alert.detect_fall(results.pose_landmarks)
             
-            # Additional head-based fall detection with much higher thresholds
+            # Additional head-based fall detection with extremely conservative thresholds
             if not potential_fall:
                 # Get head landmarks
                 nose = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.NOSE]
                 left_ear = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_EAR]
                 right_ear = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_EAR]
                 
-                # Calculate head orientation with much higher threshold
-                head_center_y = (left_ear.y + right_ear.y) * 0.5
-                head_to_nose_ratio = abs(nose.y - head_center_y) / abs(left_ear.x - right_ear.x)
-                
-                # Get shoulder position for relative head position check
+                # Get shoulder and hip positions for comprehensive checks
                 left_shoulder = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_SHOULDER]
                 right_shoulder = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_SHOULDER]
+                left_hip = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.LEFT_HIP]
+                right_hip = results.pose_landmarks.landmark[self.alert.mp_pose.PoseLandmark.RIGHT_HIP]
+                
+                # Calculate various position metrics
+                head_center_y = (left_ear.y + right_ear.y) * 0.5
                 shoulder_center_y = (left_shoulder.y + right_shoulder.y) * 0.5
+                hip_center_y = (left_hip.y + right_hip.y) * 0.5
                 
-                # Calculate relative head position to shoulders
+                # Calculate ratios with extremely conservative thresholds
+                head_to_nose_ratio = abs(nose.y - head_center_y) / abs(left_ear.x - right_ear.x)
                 head_to_shoulder_ratio = abs(head_center_y - shoulder_center_y) / abs(left_shoulder.x - right_shoulder.x)
+                head_to_hip_ratio = abs(head_center_y - hip_center_y) / abs(left_hip.x - right_hip.x)
                 
-                # Check if head is significantly tilted or too low
-                # Only trigger if both head tilt AND position are abnormal
-                is_head_tilted = head_to_nose_ratio > 1.2  # Increased from 0.7 to 1.2
-                is_head_low = head_center_y > self.alert.fall_threshold + 0.2  # Increased from 0.1 to 0.2
-                is_head_relative_low = head_to_shoulder_ratio > 1.5  # New check for head position relative to shoulders
+                # Extremely conservative thresholds for head position
+                is_head_tilted = head_to_nose_ratio > self.thresholds["head_detection"]["tilt_threshold"]
+                is_head_low = head_center_y > self.alert.fall_threshold + self.thresholds["head_detection"]["position_threshold"]
+                is_head_relative_low = head_to_shoulder_ratio > self.thresholds["head_detection"]["shoulder_ratio_threshold"]
+                is_head_near_hips = head_to_hip_ratio < self.thresholds["head_detection"]["hip_ratio_threshold"]
                 
-                # Only consider it a potential fall if multiple head conditions are met
-                if (is_head_tilted and is_head_low) or (is_head_tilted and is_head_relative_low):
+                # Only consider it a potential fall if ALL conditions are met
+                # This makes it much harder to trigger accidentally
+                if (is_head_tilted and is_head_low and is_head_relative_low and is_head_near_hips):
                     potential_fall = True
-                    logger.info("Potential fall detected based on head position")
+                    triggered_thresholds = []
+                    if is_head_tilted:
+                        triggered_thresholds.append(f"tilt ({head_to_nose_ratio:.2f} > {self.thresholds['head_detection']['tilt_threshold']})")
+                    if is_head_low:
+                        triggered_thresholds.append(f"position ({head_center_y:.2f} > {self.alert.fall_threshold + self.thresholds['head_detection']['position_threshold']:.2f})")
+                    if is_head_relative_low:
+                        triggered_thresholds.append(f"shoulder ratio ({head_to_shoulder_ratio:.2f} > {self.thresholds['head_detection']['shoulder_ratio_threshold']})")
+                    if is_head_near_hips:
+                        triggered_thresholds.append(f"hip ratio ({head_to_hip_ratio:.2f} < {self.thresholds['head_detection']['hip_ratio_threshold']})")
+                    
+                    logger.info(f"Potential fall detected based on head position. Triggered thresholds: {', '.join(triggered_thresholds)}")
                 else:
-                    logger.debug(f"Head position normal: tilt={head_to_nose_ratio:.2f}, low={is_head_low}, relative={head_to_shoulder_ratio:.2f}")
+                    logger.debug(f"Head position normal: tilt={head_to_nose_ratio:.2f}, low={is_head_low}, relative={head_to_shoulder_ratio:.2f}, hip={head_to_hip_ratio:.2f}")
             
             if potential_fall and not self.fall_confirmed:
                 # Check cooldown and pose change

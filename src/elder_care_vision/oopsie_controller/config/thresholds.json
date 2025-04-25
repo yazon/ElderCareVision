@@ -1,0 +1,17 @@
+{
+    "head_detection": {
+        "tilt_threshold": 2.0,
+        "position_threshold": 0.3,
+        "shoulder_ratio_threshold": 2.0,
+        "hip_ratio_threshold": 1.5
+    },
+    "pose_detection": {
+        "movement_threshold": 0.15
+    },
+    "llm": {
+        "cooldown_seconds": 5
+    },
+    "warning": {
+        "frames": 5
+    }
+} 
