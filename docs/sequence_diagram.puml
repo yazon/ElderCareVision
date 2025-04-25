@@ -1,0 +1,92 @@
+@startuml
+skinparam backgroundColor white
+skinparam sequenceMessageAlign center
+skinparam ParticipantPadding 20
+skinparam BoxPadding 10
+
+skinparam participant {
+    BackgroundColor white
+    BorderColor black
+}
+
+skinparam sequence {
+    ArrowColor black
+    LifeLineBorderColor gray
+    LifeLineBackgroundColor white
+    GroupBackgroundColor white
+    GroupBodyBackgroundColor white
+}
+
+actor "Video Source" as Video
+box "OopsieController" #white
+    collections "Frame Queue" as Queue
+    participant "Controller" as Controller
+    collections "Analysis Queue" as AQueue
+    collections "Thread Pool" as Pool
+end box
+participant "OopsieAlert\n(FallDetector)" as Alert
+participant "OopsieNanny\n(ImageRecognizer)" as Nanny
+
+== Initialization ==
+Controller -> Alert: Initialize FallDetector
+Controller -> Nanny: Initialize ImageRecognizer
+Controller -> Queue: Create frame queue
+Controller -> AQueue: Create analysis queue
+Controller -> Pool: Create thread pool
+
+== Frame Processing ==
+Video -> Controller: New frame
+activate Controller
+
+Controller -> Queue: Add frame to queue
+activate Queue
+
+group Frame Processing Loop
+    Queue -> Controller: Get frame for processing
+    Controller -> Alert: Detect pose landmarks
+    activate Alert
+    Alert --> Controller: Return pose landmarks
+    deactivate Alert
+
+    Controller -> Controller: Draw POI markers
+    
+    alt Potential Fall Detected
+        Controller -> Controller: Check pose change
+        
+        alt Significant Change
+            Controller -> Controller: Create sequence
+            Controller -> Pool: Submit analysis
+            activate Pool
+            
+            Pool -> Nanny: Analyze sequence
+            activate Nanny
+            Nanny --> Pool: Return analysis
+            deactivate Nanny
+            
+            Pool -> AQueue: Queue result
+            deactivate Pool
+        end
+    end
+    
+    Controller -> Controller: Update history
+    Controller -> Controller: Update display
+end
+
+group Analysis Processing
+    loop While results pending
+        AQueue -> Controller: Get result
+        
+        alt Fall Confirmed
+            Controller -> Controller: Set warning
+            Controller -> Controller: Show overlay
+        else Threshold Update
+            Controller -> Controller: Apply thresholds
+            Controller -> Controller: Update plots
+        end
+    end
+end
+
+deactivate Queue
+deactivate Controller
+
+@enduml 
