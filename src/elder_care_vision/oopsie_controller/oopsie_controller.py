@@ -147,7 +147,7 @@ class OopsieController:
         # Initialize frame history with fixed time intervals
         self.frame_history = []  # Store last 6 frames
         self.frame_timestamps = []  # Store timestamps for each frame
-        self.max_history_frames = 6  # Number of frames to keep in history
+        self.max_history_frames = 16  # Number of frames to keep in history
         self.frame_interval = 0.5  # Fixed interval between frames (0.5 seconds)
         self.last_frame_time = 0  # Track last frame time
         self.start_time = time.time()  # Track when processing started
@@ -157,6 +157,7 @@ class OopsieController:
         self.is_collecting_post_fall = False  # Flag to track if we're collecting post-fall frames
         self.post_fall_start_time = 0  # Track when post-fall collection started
         self.post_fall_interval = 0.5  # Fixed interval between post-fall frames (0.5 seconds)
+        self.fall_confidence = 0
 
         # Load thresholds from config file
         config_path = Path(__file__).parent / "config" / "thresholds.json"
@@ -1061,7 +1062,8 @@ class OopsieController:
         # Collect post-fall frames if needed
         if self.is_collecting_post_fall:
             # Check if it's time to collect the next post-fall frame
-            if current_time - self.post_fall_start_time >= self.post_fall_interval * len(self.post_fall_frames):
+            last_frame_time = self.post_fall_timestamps[-1] if self.post_fall_timestamps else self.post_fall_start_time
+            if current_time - last_frame_time >= self.post_fall_interval:
                 self.post_fall_frames.append(frame.copy())
                 self.post_fall_timestamps.append(current_time)
                 logger.info(f"Collected post-fall frame {len(self.post_fall_frames)}/{self.max_post_fall_frames}")
