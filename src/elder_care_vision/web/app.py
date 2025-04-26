@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import logging
@@ -5,7 +6,6 @@ import threading
 from dataclasses import asdict, is_dataclass
 from enum import Enum
 
-# Import Response from flask
 from flask import Flask, Response, render_template
 
 from elder_care_vision.core.agents.psa_data import FallDetectionResult
@@ -53,11 +53,17 @@ class CustomEncoder(json.JSONEncoder):
 # app.json_encoder = CustomEncoder
 
 
-def run_coordinator_in_background() -> None:
-    """Runs the coordinator's async loop in a separate thread."""
+def run_coordinator_in_background(video_source: int | str = 0) -> None:
+    """
+    Runs the coordinator's async loop in a separate thread.
+
+    Args:
+        video_source: Either a camera ID (integer) or an RTSP stream URL (string).
+                     Defaults to 0 (default camera).
+    """
     global coordinator
-    logger.info("Coordinator background thread started.")
-    coordinator = Coordinator()
+    logger.info(f"Coordinator background thread started with video source: {video_source}")
+    coordinator = Coordinator(video_source)
     try:
         # Ensure an event loop exists for the thread
         asyncio.set_event_loop(asyncio.new_event_loop())
@@ -96,17 +102,38 @@ def get_context() -> Response:
     return Response(json_data, mimetype="application/json")
 
 
-def start_background_tasks() -> None:
-    """Starts the background thread for the coordinator."""
+def start_background_tasks(video_source: int | str) -> None:
+    """
+    Starts the background thread for the coordinator.
+
+    Args:
+        video_source: The video source (camera ID or RTSP URL) to pass to the coordinator.
+    """
     global coordinator_thread
     if coordinator_thread is None or not coordinator_thread.is_alive():
-        logger.info("Starting coordinator background thread.")
-        coordinator_thread = threading.Thread(target=run_coordinator_in_background, daemon=True)
+        logger.info(f"Starting coordinator background thread with video source: {video_source}")
+        coordinator_thread = threading.Thread(target=run_coordinator_in_background, args=(video_source,), daemon=True)
         coordinator_thread.start()
 
 
 if __name__ == "__main__":
-    start_background_tasks()
+    parser = argparse.ArgumentParser(description="Elder Care Vision Web UI")
+    parser.add_argument(
+        "--video-source",
+        type=str,
+        default="0",
+        help="Video source (camera ID or RTSP URL). Default: 0 (default camera)",
+    )
+    args = parser.parse_args()
+
+    # Convert video source to int if it's a number, otherwise keep as string
+    try:
+        video_source = int(args.video_source)
+    except ValueError:
+        video_source = args.video_source
+
+    logger.info(f"Starting Web UI with video source: {video_source}")
+    start_background_tasks(video_source)
     # Note: Using Flask's development server is not recommended for production.
     # Use a production-ready WSGI server like Gunicorn or Waitress.
     app.run(debug=True, host="0.0.0.0", port=5001, use_reloader=False)  # noqa: S104, S201

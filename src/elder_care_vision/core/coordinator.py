@@ -2,7 +2,6 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Union
 
 from elder_care_vision.core.agents.health_status_inquiry import HealthStatusInquiryAgent
 from elder_care_vision.core.agents.person_state_analyzer import PersonStateAnalyzerAgent
@@ -56,7 +55,7 @@ class Coordinator:
         emergency_call_tool (callable): Tool function to make emergency calls.
     """
 
-    def __init__(self, video_source: Union[int, str] = 0) -> None:
+    def __init__(self, video_source: int | str = 0) -> None:
         """
         Initializes the Coordinator.
 

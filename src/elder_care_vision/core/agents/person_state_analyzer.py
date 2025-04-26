@@ -5,8 +5,6 @@ import base64
 import logging
 import threading
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Union
 
 import cv2
 import numpy as np
@@ -32,7 +30,7 @@ class PersonStateAnalyzerAgent:
         controller: Main processing controller instance
     """
 
-    def __init__(self, video_source: Union[int, str] = 0) -> None:
+    def __init__(self, video_source: int | str = 0) -> None:
         """
         Initializes the Person State Analyzer agent.
 

@@ -1,7 +1,6 @@
+import argparse
 import asyncio
 import logging
-import argparse
-from typing import Union
 
 from dotenv import load_dotenv
 
@@ -15,7 +14,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def main(video_source: Union[int, str] = 0) -> None:
+async def main(video_source: int | str = 0) -> None:
     """
     Main entry point for the Elder Care Vision system.
 
