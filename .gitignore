@@ -185,3 +185,6 @@ cython_debug/
 
 # media files
 *.mp4
+
+# Ignore all files in the test_output directory
+test_output/*

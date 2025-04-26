@@ -6,12 +6,14 @@ It orchestrates the overly-sensitive detector (oopsie_alert) and the sensible fi
 to create a balanced and effective fall detection system.
 """
 
+import asyncio
 import json
 import logging
 import time
 from pathlib import Path
 
 import cv2
+import re
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -165,14 +167,17 @@ class OopsieController:
                     "hip_ratio_threshold": 1.5,
                 },
                 "pose_detection": {"movement_threshold": 0.15},
+                "fall_detection": {"confidence_threshold": 70},
                 "llm": {"cooldown_seconds": 5},
                 "warning": {"frames": 5},
                 "auto_update": {"enabled": False, "min_confidence": 0.8, "max_adjustment": 0.1, "update_frequency": 5},
             }
 
+        self.confirmed_fall_confidence_level = self.thresholds["fall_detection"]["confidence_threshold"]
         self.warning_frames = self.thresholds["warning"]["frames"]
         self.current_warning_frames = 0
         self.fall_confirmed = False
+        self.fall_confidence_level = 0
         self.is_processing_video = False
         self.last_llm_request_time = 0
         self.llm_cooldown = self.thresholds["llm"]["cooldown_seconds"]
@@ -826,7 +831,7 @@ class OopsieController:
             threshold_values = self._calculate_threshold_values(landmarks)
 
             # Get LLM analysis
-            analysis = self.nanny.analyze_image(sequence_path, threshold_values)
+            analysis = asyncio.run(self.nanny.analyze_image(sequence_path, threshold_values))
             logger.info(f"LLM Analysis: {analysis}")
 
             # Put result in analysis queue
@@ -929,7 +934,7 @@ class OopsieController:
             except Exception as e:
                 logger.error(f"Error in algorithm fall subscriber: {e!s}")
 
-    def _notify_confirmed_fall(self, sequence_path: str, analysis: str, timestamp: float) -> None:
+    def _notify_confirmed_fall(self, _: str, analysis: str, confidence_level: int) -> None:
         """
         Notify all confirmed fall subscribers.
 
@@ -941,7 +946,7 @@ class OopsieController:
         for subscriber in self.confirmed_fall_subscribers:
             try:
                 # Pass the actual frame history and timestamps instead of the sequence path
-                subscriber(self.frame_history.copy(), self.frame_timestamps.copy(), analysis, timestamp)
+                subscriber(self.frame_history.copy(), self.frame_timestamps.copy(), analysis, confidence_level)
             except Exception as e:
                 logger.error(f"Error in confirmed fall subscriber: {e!s}")
 
@@ -1009,14 +1014,23 @@ class OopsieController:
                 analysis, threshold_values = self.analysis_queue.get_nowait()
 
                 # Process analysis result
-                if "CONFIRMED FALL" in analysis.upper():
-                    logger.info("Fall confirmed by LLM analysis")
-                    self.fall_confirmed = True
-                    self.current_warning_frames = self.warning_frames
+                # Extract the confidence level from the <fall_confidence> tags
+                confidence_level = re.search(r"<fall_confidence>(.*?)</fall_confidence>", analysis)
+                if confidence_level:
+                    confidence_level = int(confidence_level.group(1))
+                    logger.info(f"Fall confidence level: {confidence_level}")
+                else:
+                    logger.error("No fall confidence level found")
+                    confidence_level = 100.0
+                self.fall_confidence_level = confidence_level
+                # self.fall_confirmed = True
+                self.current_warning_frames = self.warning_frames
 
+                if self.fall_confidence_level >= self.confirmed_fall_confidence_level:
+                    self.fall_confirmed = True
                     # Notify confirmed fall subscribers
                     if hasattr(self, "frame_history") and hasattr(self, "frame_timestamps"):
-                        self._notify_confirmed_fall(None, analysis, time.time())
+                        self._notify_confirmed_fall(None, analysis, self.confirmed_fall_confidence_level)
 
                 # Check for threshold adjustments
                 if "THRESHOLD_ADJUSTMENT:" in analysis:
@@ -1033,7 +1047,7 @@ class OopsieController:
                 logger.info("Fall warning period ended")
                 self.fall_confirmed = False
 
-        return frame, self.fall_confirmed
+        return frame, self.fall_confidence_level
 
     def process_video(self, video_path: str) -> None:
         """
@@ -1067,7 +1081,7 @@ class OopsieController:
                     )
 
                 # Process frame
-                processed_frame, fall_detected = self.process_frame(frame)
+                processed_frame, fall_confidence = self.process_frame(frame)
 
                 # Display result
                 cv2.imshow("Fall Detection", processed_frame)
