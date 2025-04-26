@@ -27,7 +27,7 @@ import tkinter as tk
 from concurrent.futures import ThreadPoolExecutor
 from tkinter import scrolledtext
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 
 from .oopsie_alert.oopsie_alert import FallDetector
 from .oopsie_nanny.oopsie_nanny import ImageRecognizer
@@ -150,6 +150,13 @@ class OopsieController:
         self.max_history_frames = 6  # Number of frames to keep in history
         self.frame_interval = 0.5  # Seconds between frames (6 frames in 3 seconds)
         self.last_frame_time = 0  # Track last frame time
+        self.start_time = time.time()  # Track when processing started
+        self.post_fall_frames = []  # Store frames after fall detection
+        self.post_fall_timestamps = []  # Store timestamps for post-fall frames
+        self.max_post_fall_frames = 6  # Number of frames to collect after fall
+        self.is_collecting_post_fall = False  # Flag to track if we're collecting post-fall frames
+        self.post_fall_frame_count = 0  # Track number of frames since fall detection
+        self.post_fall_frame_interval = 10  # Collect one frame every 30 frames (assuming 10fps)
 
         # Load thresholds from config file
         config_path = Path(__file__).parent / "config" / "thresholds.json"
@@ -492,6 +499,11 @@ class OopsieController:
                         # Paste the resized image onto the center of the black background
                         final_image.paste(sequence_image, (x, y))
 
+                        # Add a title to the sequence image
+                        draw = ImageDraw.Draw(final_image)
+                        font = ImageFont.truetype("DejaVuSans.ttf", 16)
+                        draw.text((10, 10), "Fall Detection Sequence", fill=(255, 255, 255), font=font)
+
                         # Convert to PhotoImage
                         sequence_photo = ImageTk.PhotoImage(final_image)
                         self.sequence_label.configure(image=sequence_photo)
@@ -730,6 +742,8 @@ class OopsieController:
     def _create_frame_sequence(self) -> str | None:
         """
         Create a sequence image from frame history with timestamps.
+        Includes frames before and after the fall detection.
+        If video is too short, reuses the last available frame.
 
         Returns:
             Path to the saved sequence image, or None if not enough frames
@@ -740,13 +754,14 @@ class OopsieController:
         try:
             # Calculate dimensions for the sequence image
             frame_height, frame_width = self.frame_history[0].shape[:2]
+            total_frames = len(self.frame_history) + self.max_post_fall_frames
             sequence_width = frame_width * 3  # 3 frames per row
-            sequence_height = frame_height * 2  # 2 rows
+            sequence_height = frame_height * ((total_frames + 2) // 3)  # Calculate rows needed
 
             # Create blank image for the sequence
             sequence = np.zeros((sequence_height, sequence_width, 3), dtype=np.uint8)
 
-            # Add frames to sequence with timestamps
+            # Add pre-fall frames to sequence with timestamps
             for i, (frame, timestamp) in enumerate(zip(self.frame_history, self.frame_timestamps, strict=False)):
                 row = i // 3
                 col = i % 3
@@ -769,6 +784,74 @@ class OopsieController:
                     font,
                     font_scale,
                     (255, 255, 255),
+                    thickness,
+                )
+
+                # Add red border to the frame where fall was detected
+                if i == len(self.frame_history) - 1:
+                    cv2.rectangle(
+                        sequence,
+                        (x_start, y_start),
+                        (x_start + frame_width, y_start + frame_height),
+                        (0, 0, 255),
+                        3,
+                    )
+
+            # Add post-fall frames to sequence with timestamps
+            for i in range(self.max_post_fall_frames):
+                row = (i + len(self.frame_history)) // 3
+                col = (i + len(self.frame_history)) % 3
+                y_start = row * frame_height
+                x_start = col * frame_width
+
+                # Use the last available frame if we don't have enough post-fall frames
+                if i < len(self.post_fall_frames):
+                    frame = self.post_fall_frames[i]
+                    timestamp = self.post_fall_timestamps[i]
+                else:
+                    frame = self.post_fall_frames[-1] if self.post_fall_frames else self.frame_history[-1]
+                    timestamp = (
+                        self.post_fall_timestamps[-1] if self.post_fall_timestamps else self.frame_timestamps[-1]
+                    )
+
+                # Add frame to sequence
+                sequence[y_start : y_start + frame_height, x_start : x_start + frame_width] = frame
+
+                # Add timestamp with milliseconds
+                time_diff = timestamp - self.frame_timestamps[-1]
+                timestamp_str = f"t+{time_diff:.3f}s"
+                cv2.putText(
+                    sequence,
+                    timestamp_str,
+                    (x_start + 10, y_start + frame_height - 10),
+                    font,
+                    font_scale,
+                    (255, 255, 255),
+                    thickness,
+                )
+
+                # Add "(reused)" text if we're reusing a frame
+                if i >= len(self.post_fall_frames):
+                    cv2.putText(
+                        sequence,
+                        "(reused)",
+                        (x_start + 10, y_start + 30),
+                        font,
+                        font_scale,
+                        (0, 255, 0),
+                        thickness,
+                    )
+
+            # Add collection status text
+            if self.is_collecting_post_fall:
+                status_text = f"Collecting post-fall frames: {len(self.post_fall_frames)}/{self.max_post_fall_frames}"
+                cv2.putText(
+                    sequence,
+                    status_text,
+                    (10, 30),
+                    font,
+                    font_scale,
+                    (0, 255, 0),
                     thickness,
                 )
 
@@ -975,6 +1058,31 @@ class OopsieController:
                 self.frame_history.pop(0)
                 self.frame_timestamps.pop(0)
 
+        # Collect post-fall frames if needed
+        if self.is_collecting_post_fall:
+            self.post_fall_frame_count += 1
+            if (
+                self.post_fall_frame_count >= self.post_fall_frame_interval
+                and len(self.post_fall_frames) < self.max_post_fall_frames
+            ):
+                self.post_fall_frames.append(frame.copy())
+                self.post_fall_timestamps.append(current_time)
+                self.post_fall_frame_count = 0
+                logger.info(f"Collected post-fall frame {len(self.post_fall_frames)}/{self.max_post_fall_frames}")
+
+            # If we've collected enough frames or if we've waited long enough (3 seconds), proceed with analysis
+            if len(self.post_fall_frames) >= self.max_post_fall_frames or (
+                current_time - self.frame_timestamps[-1] > 3.0
+            ):
+                self.is_collecting_post_fall = False
+                logger.info("Finished collecting post-fall frames")
+
+                # Create and save frame sequence
+                sequence_path = self._create_frame_sequence()
+                if sequence_path:
+                    # Submit analysis task to thread pool
+                    self.thread_pool.submit(self._analyze_fall, sequence_path, results.pose_landmarks)
+
         # Draw POI if person is detected
         if results.pose_landmarks:
             frame = self.draw_poi(frame, results.pose_landmarks)
@@ -989,20 +1097,24 @@ class OopsieController:
                 # Check for potential fall
                 if self.alert.detect_fall(results.pose_landmarks):
                     current_time = time.time()
+                    # Ignore detections in the first 3 seconds
+                    if current_time - self.start_time < 3:
+                        logger.info("Ignoring detection within first 3 seconds")
+                        return frame, self.fall_confidence
                     if (
                         current_time - self.last_llm_request_time >= self.llm_cooldown
                         and self._pose_changed_significantly(results.pose_landmarks)
                     ):
+                        # Start collecting post-fall frames
+                        self.is_collecting_post_fall = True
+                        self.post_fall_frames = []
+                        self.post_fall_timestamps = []
+                        self.post_fall_frame_count = 0
+
                         # Notify algorithm fall subscribers at this point
                         self._notify_algorithm_fall(frame, results.pose_landmarks, current_time)
 
-                        logger.info("Potential fall detected! Queueing for LLM analysis...")
-
-                        # Create and save frame sequence
-                        sequence_path = self._create_frame_sequence()
-                        if sequence_path:
-                            # Submit analysis task to thread pool
-                            self.thread_pool.submit(self._analyze_fall, sequence_path, results.pose_landmarks)
+                        logger.info("Potential fall detected! Starting post-fall frame collection...")
 
             except queue.Full:
                 self.queue_status["dropped_frames"] += 1
