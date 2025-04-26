@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
-    logger.info("Starting Elder Care Vision system...")
     coordinator = Coordinator()
     await coordinator.run()
 

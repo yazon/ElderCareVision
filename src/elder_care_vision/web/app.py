@@ -36,7 +36,7 @@ polling_interval_ms = int(config.get("web", {}).get("poll_interval_s", DEFAULT_P
 class CustomEncoder(json.JSONEncoder):
     """Custom JSON encoder to handle Enum types and dataclasses."""
 
-    def default(self, o):
+    def default(self, o) -> any:
         if isinstance(o, Enum):
             return o.name  # Convert Enum members to their names
         if is_dataclass(o):
@@ -109,4 +109,4 @@ if __name__ == "__main__":
     start_background_tasks()
     # Note: Using Flask's development server is not recommended for production.
     # Use a production-ready WSGI server like Gunicorn or Waitress.
-    app.run(debug=True, host="0.0.0.0", port=5001, use_reloader=False)  # use_reloader=False is important for threads
+    app.run(debug=True, host="0.0.0.0", port=5001, use_reloader=False)  # noqa: S104, S201
