@@ -112,7 +112,7 @@ The thresholds (`confidence_threshold_1`, `confidence_threshold_2`) and emergenc
 
    - Use dedicated camera with 1080p+ resolution
    - Position microphone within 2m of monitoring area
-   - Maintain ambient noise < 50dB
+   - Maintain ambient noise
 
 1. Monitoring Configuration
 

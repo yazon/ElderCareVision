@@ -3,7 +3,7 @@
         "health_status_inquiry": {
             "model": "gpt-4.1",
             "tts_model": "gpt-4o-mini-tts",
-            "stt_model": "gpt-4o-transcribe",
+            "stt_model": "whisper-1",
             "tts_settings": {
                 "voice": "ash"
             },

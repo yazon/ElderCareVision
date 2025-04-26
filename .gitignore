@@ -188,6 +188,7 @@ cython_debug/
 
 # Ignore all files in the test_output directory
 test_output/*
+static/*
 
 *.log.1
 *.log.2

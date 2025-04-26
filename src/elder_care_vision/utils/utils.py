@@ -33,5 +33,5 @@ def get_static_path() -> Path:
     Returns:
         Path: Absolute path to the static data directory
     """
-    # The static directory is located at the same level as the config directory
-    return Path(__file__).parent.parent / "static"
+    # The static directory is located at the same level as the main directory
+    return Path(__file__).parent.parent.parent.parent / "static"

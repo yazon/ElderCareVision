@@ -5,7 +5,6 @@ import base64
 import logging
 import threading
 from datetime import UTC, datetime
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -13,6 +12,7 @@ from pydantic import BaseModel
 
 from elder_care_vision.core.agents.psa_data import FallDetectionResult
 from elder_care_vision.oopsie_controller.oopsie_controller import OopsieController
+from elder_care_vision.utils.utils import get_static_path
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class PersonStateAnalyzerAgent:
         self.camera_id = camera_id
         self.fall_detection_result = FallDetectionResult()
         # Create output directory
-        self.output_path = Path("test_output")
+        self.output_path = get_static_path()
         self.output_path.mkdir(exist_ok=True)
 
         # Initialize controller

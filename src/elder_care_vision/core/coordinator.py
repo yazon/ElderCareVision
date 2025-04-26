@@ -143,7 +143,8 @@ class Coordinator:
         """
         confidence_level = self.person_state_analyzer_agent.fall_detection_result.confidence_level
         logger.info(f"PSA confidence: {confidence_level}")
-        await asyncio.sleep(0.5)
+        # We do not need to check the status so often, so we sleep for 1 second
+        await asyncio.sleep(1)
         if confidence_level != self.context.last_psa_confidence:
             self.context.last_psa_confidence = confidence_level
             # Store the fall detection result to context for emergency call
