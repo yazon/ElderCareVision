@@ -1,4 +1,5 @@
-"""Emergency Call System Module
+"""
+Emergency Call System Module
 
 This module provides functionality for handling emergency situations through automated calls and SMS notifications.
 It integrates image analysis, text-to-speech conversion, and phone communication capabilities to provide a comprehensive
@@ -20,18 +21,18 @@ Example:
     ```
 """
 
+import asyncio
 import base64
 import logging
-import asyncio
 import time
 from pathlib import Path
 
 from elder_care_vision.config.logging_config import setup_logging
+from elder_care_vision.core.agents.psa_data import FallDetectionResult
 from elder_care_vision.core.tools.emergency_call.adb_phone_call_manager import ADBPhoneCallManager
 from elder_care_vision.core.tools.emergency_call.img_analizer import ImgAnalizer
 from elder_care_vision.services.openai_service import OpenAIService
 from elder_care_vision.utils.utils import load_config
-from elder_care_vision.core.agents.psa_data import FallDetectionResult
 
 setup_logging()
 
@@ -39,7 +40,8 @@ logger = logging.getLogger(__name__)
 
 
 async def emergency_call_tool(fall_detection_result: FallDetectionResult, health_status: str) -> bool:
-    """Process an emergency call with image analysis and audio notification.
+    """
+    Process an emergency call with image analysis and audio notification.
 
     This function handles the complete emergency response process:
     1. Analyzes the fall detection result
@@ -100,9 +102,8 @@ async def emergency_call_tool(fall_detection_result: FallDetectionResult, health
                 if success:
                     logger.info("Emergency call processed successfully")
                     return True
-                else:
-                    logger.error("Failed to process emergency call")
-                    continue
+                logger.error("Failed to process emergency call")
+                continue
             except Exception as e:
                 logger.error("Error in emergency call processing: %s", str(e))
                 continue
@@ -115,7 +116,8 @@ async def emergency_call_tool(fall_detection_result: FallDetectionResult, health
 
 
 class EmergencyCallHelper:
-    """Helper class for managing emergency calls and SMS notifications.
+    """
+    Helper class for managing emergency calls and SMS notifications.
 
     This class provides methods for:
     - Making emergency phone calls
@@ -134,19 +136,21 @@ class EmergencyCallHelper:
     """
 
     def __init__(self):
-        """Initialize the EmergencyCallHelper.
+        """
+        Initialize the EmergencyCallHelper.
 
         Raises:
             ValueError: If no Android device is found
         """
         try:
             self.phone_manager = ADBPhoneCallManager()
-        except ValueError as e:
+        except ValueError:
             logger.error("No Android device found. Please connect a device and try again.")
             raise
 
     def make_call(self, phone_number: str, audio_data: bytes) -> bool:
-        """Make an emergency call with audio message.
+        """
+        Make an emergency call with audio message.
 
         This method:
         1. Initiates a call to the specified number
@@ -196,8 +200,7 @@ class EmergencyCallHelper:
                     if phone_manager.end_call():
                         logger.info("Call ended successfully")
                         return True
-                    else:
-                        logger.warning("Failed to end call")
+                    logger.warning("Failed to end call")
                 else:
                     phone_manager.end_call()
                     logger.warning("Call did not become active within timeout period")
@@ -206,15 +209,16 @@ class EmergencyCallHelper:
 
             return False
 
-        except RuntimeError as e:
+        except RuntimeError:
             logger.error("Runtime error occurred during call")
             return False
-        except Exception as e:
+        except Exception:
             logger.error("Unexpected error occurred during call")
             return False
 
     def send_sms(self, phone_number: str, message: str) -> bool:
-        """Send an SMS notification.
+        """
+        Send an SMS notification.
 
         Args:
             phone_number: The phone number to send the SMS to

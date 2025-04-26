@@ -1,4 +1,5 @@
-"""Android Device Communication Module
+"""
+Android Device Communication Module
 
 This module provides functionality for managing phone calls and SMS messages through ADB (Android Debug Bridge).
 It enables automated phone operations including making calls, sending SMS, and playing audio messages on Android devices.
@@ -43,7 +44,8 @@ logger = logging.getLogger(__name__)
 
 
 class CallStatus(Enum):
-    """Enum representing different call states.
+    """
+    Enum representing different call states.
 
     States:
         IDLE: No active call
@@ -65,7 +67,8 @@ class CallStatus(Enum):
 
 
 class ADBPhoneCallManager:
-    """Class for managing phone calls through ADB on Android devices.
+    """
+    Class for managing phone calls through ADB on Android devices.
 
     This class provides methods for:
     - Making and ending phone calls
@@ -85,7 +88,8 @@ class ADBPhoneCallManager:
     """
 
     def __init__(self, host: str = "127.0.0.1", port: int = 5037, device_index: int = 0) -> None:
-        """Initialize the ADBPhoneCallManager.
+        """
+        Initialize the ADBPhoneCallManager.
 
         Args:
             host: ADB server host address
@@ -103,7 +107,8 @@ class ADBPhoneCallManager:
         self._last_status = CallStatus.IDLE
 
     def make_call(self, phone_number: str) -> bool:
-        """Make a phone call using ADB.
+        """
+        Make a phone call using ADB.
 
         This method initiates a phone call to the specified number using Android's
         telephony system through ADB commands.
@@ -135,7 +140,8 @@ class ADBPhoneCallManager:
             return False
 
     def end_call(self) -> bool:
-        """End the current call.
+        """
+        End the current call.
 
         This method sends the end call command to the Android device using ADB.
 
@@ -156,7 +162,8 @@ class ADBPhoneCallManager:
             return False
 
     def get_call_status(self) -> CallStatus:
-        """Get the current call status.
+        """
+        Get the current call status.
 
         This method queries the Android device's telephony system to determine
         the current state of any active call.
@@ -194,7 +201,8 @@ class ADBPhoneCallManager:
             return CallStatus.ERROR
 
     def wait_for_answer(self, timeout: int = 60) -> bool:
-        """Wait for the call to be answered or declined.
+        """
+        Wait for the call to be answered or declined.
 
         This method polls the call status until either:
         - The call is answered
@@ -232,7 +240,8 @@ class ADBPhoneCallManager:
         return False
 
     def play_audio(self, audio_data: bytes) -> bool:
-        """Play audio on the computer using sounddevice and soundfile.
+        """
+        Play audio on the computer using sounddevice and soundfile.
 
         This method plays audio data through the computer's speakers or
         a connected Plantronics device if available.
@@ -278,7 +287,8 @@ class ADBPhoneCallManager:
             return False
 
     def send_sms(self, phone_number: str, message: str) -> bool:
-        """Send an SMS message using ADB.
+        """
+        Send an SMS message using ADB.
 
         This method sends an SMS message to the specified phone number.
         Long messages are automatically split into multiple parts.

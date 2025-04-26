@@ -68,6 +68,11 @@ OPENAI_API_KEY=your-key-here
 1. Start main system:
    python -m elder_care_vision.main
 
+or
+
+2. Start web interface:
+   python -m elder_care_vision.web.app
+
 ## State Machine Logic
 
 The system operates based on a state machine managed by the `Coordinator`. The possible states are:

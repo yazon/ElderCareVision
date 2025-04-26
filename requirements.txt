@@ -1,9 +1,10 @@
 adb_shell>=0.4.4
 colorama==0.4.6
+flask[async]==3.0.2
 matplotlib==3.8.3
 mdformat==0.7.22
 mediapipe==0.10.21
-numpy==2.2.5
+numpy==1.26.4
 openai==1.76.0
 openai-agents==0.0.13
 opencv-python==4.11.0.86
