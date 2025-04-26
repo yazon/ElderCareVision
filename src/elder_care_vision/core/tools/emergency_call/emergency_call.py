@@ -18,7 +18,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def emergency_call_tool(imageBase64: str, story: str = "") -> bool:
+async def emergency_call_tool(fall_detection_result: FallDetectionResult, story: str = "") -> bool:
     """Process an emergency call with image analysis and audio notification.
 
     Args:
@@ -34,6 +34,7 @@ async def emergency_call_tool(imageBase64: str, story: str = "") -> bool:
         for contact in config["contacts"]:
             # Analyze the image
             img_analizer = ImgAnalizer()
+            imageBase64 = fall_detection_result.fall_image
             text = await img_analizer.analize_image(imageBase64, contact["relationship"], story)
             if not text:
                 logger.error("Failed to analyze image")
