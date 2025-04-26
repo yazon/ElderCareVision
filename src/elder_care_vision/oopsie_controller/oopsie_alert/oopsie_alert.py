@@ -14,9 +14,9 @@ Author: Your Name
 Date: Current Date
 """
 
-import cv2
-import numpy as np
 import sys
+
+import cv2
 import mediapipe as mp
 
 
@@ -65,7 +65,8 @@ class FallDetector:
         self.fall_frames = 0  # Counter for consecutive fall frames
 
     def resize_frame(self, frame):
-        """Resize frame while maintaining aspect ratio for better performance.
+        """
+        Resize frame while maintaining aspect ratio for better performance.
 
         Args:
             frame: Input frame
@@ -155,7 +156,8 @@ class FallDetector:
         return self.fall_frames >= self.min_duration
 
     def process_frame(self, frame):
-        """Process a single frame for fall detection.
+        """
+        Process a single frame for fall detection.
 
         Args:
             frame: Input video frame

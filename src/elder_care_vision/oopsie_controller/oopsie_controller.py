@@ -9,11 +9,11 @@ to create a balanced and effective fall detection system.
 import asyncio
 import json
 import logging
+import re
 import time
 from pathlib import Path
 
 import cv2
-import re
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -167,7 +167,7 @@ class OopsieController:
                     "hip_ratio_threshold": 1.5,
                 },
                 "pose_detection": {"movement_threshold": 0.15},
-                "fall_detection": {"confidence_threshold": 70},
+                "fall_detection": {"confidence_threshold": 50},
                 "llm": {"cooldown_seconds": 5},
                 "warning": {"frames": 5},
                 "auto_update": {"enabled": False, "min_confidence": 0.8, "max_adjustment": 0.1, "update_frequency": 5},

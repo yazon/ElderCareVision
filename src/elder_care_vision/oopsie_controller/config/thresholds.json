@@ -6,7 +6,7 @@
         "hip_ratio_threshold": 1.35
     },
     "fall_detection": {
-        "confidence_threshold": 70
+        "confidence_threshold": 50
     },
     "pose_detection": {
         "movement_threshold": 0.15

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
-import cv2
 import argparse
-import time
 import logging
+import time
 from datetime import datetime
 from urllib.parse import quote
+
+import cv2
 
 # Configure logging
 logging.basicConfig(
@@ -103,7 +104,7 @@ def record_rtsp_stream(
     except KeyboardInterrupt:
         logging.info("Recording stopped by user")
     except Exception as e:
-        logging.error(f"Unexpected error: {str(e)}")
+        logging.exception(f"Unexpected error: {e!s}")
     finally:
         cap.release()
         out.release()

@@ -1,12 +1,10 @@
 """Module for handling ADB calls and call status monitoring."""
 
-import logging
-import time
 import io
+import logging
 import textwrap
-import base64
+import time
 from enum import Enum
-from pathlib import Path
 
 import sounddevice as sd
 import soundfile as sf
@@ -110,7 +108,8 @@ class ADBPhoneCallManager:
         return False
 
     def play_audio(self, audio_data: bytes) -> bool:
-        """Play audio on the computer using sounddevice and soundfile.
+        """
+        Play audio on the computer using sounddevice and soundfile.
 
         Args:
             audio_data: The audio data in bytes format (e.g., MP3, WAV)
@@ -146,7 +145,8 @@ class ADBPhoneCallManager:
             return False
 
     def send_sms(self, phone_number: str, message: str) -> bool:
-        """Send an SMS message using ADB.
+        """
+        Send an SMS message using ADB.
 
         Args:
             phone_number: The recipient's phone number

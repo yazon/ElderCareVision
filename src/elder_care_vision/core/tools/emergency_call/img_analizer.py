@@ -1,4 +1,5 @@
-"""Module for analyzing images of elderly falls and generating appropriate notifications.
+"""
+Module for analyzing images of elderly falls and generating appropriate notifications.
 
 This module provides functionality to analyze images of elderly falls using OpenAI's
 vision capabilities. It processes images to detect falls and generates appropriate
@@ -24,9 +25,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from elder_care_vision.utils.utils import load_config
 from elder_care_vision.config.logging_config import setup_logging
 from elder_care_vision.services.openai_service import OpenAIService
+from elder_care_vision.utils.utils import load_config
 
 load_dotenv()
 setup_logging()
@@ -34,7 +35,8 @@ logger = logging.getLogger(__name__)
 
 
 class ImgAnalizer:
-    """Class for analyzing images of elderly falls and generating notifications.
+    """
+    Class for analyzing images of elderly falls and generating notifications.
 
     This class uses OpenAI's vision capabilities to analyze images of elderly falls
     and generate appropriate notification messages for family members or caregivers.
@@ -56,7 +58,8 @@ class ImgAnalizer:
         self.config = load_config()["emergency_call"]
 
     async def analize_image(self, base64_image: str, relationship: str, story: str = "") -> str:
-        """Analyze an image of an elderly fall and generate a notification message.
+        """
+        Analyze an image of an elderly fall and generate a notification message.
 
         This method takes a base64-encoded image, sends it to OpenAI for analysis,
         and generates an appropriate notification message for family members or

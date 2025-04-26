@@ -1,19 +1,18 @@
 """Placeholder for the Person State Analyzer agent."""
 
-import cv2
-import logging
-from datetime import datetime, UTC
-from pathlib import Path
-import threading
 import asyncio
-from dataclasses import dataclass
-import numpy as np
 import base64
-from agents import function_tool
+import logging
+import threading
+from datetime import UTC, datetime
+from pathlib import Path
+
+import cv2
+import numpy as np
 from pydantic import BaseModel
 
-from elder_care_vision.oopsie_controller.oopsie_controller import OopsieController
 from elder_care_vision.core.agents.psa_data import FallDetectionResult
+from elder_care_vision.oopsie_controller.oopsie_controller import OopsieController
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +38,14 @@ class PersonStateAnalyzerAgent:
         self.controller = OopsieController()
 
         # Add example subscribers for testing
-        def on_algorithm_fall(frame, landmarks, timestamp) -> None:
+        def on_algorithm_fall(frame: any, _: any, timestamp: any) -> None:
             logger.info(f"Algorithm detected fall at {timestamp}")
             save_path = self.output_path / f"algorithm_fall_{timestamp}.jpg"
             cv2.imwrite(str(save_path), frame)
             logger.info(f"Saved fall detection frame to {save_path}")
 
         def on_confirmed_fall(
-            frame_sequence: list[np.ndarray], timestamps: list[float], analysis: str, confidence_level: int
+            frame_sequence: list[np.ndarray], _: list[float], analysis: str, confidence_level: int
         ) -> None:
             logger.info(f"LLM confirmed fall {analysis} with confidence level {confidence_level}")
             self.fall_detection_result.confidence_level = confidence_level
@@ -111,8 +110,9 @@ class PersonStateAnalyzerAgent:
         except KeyboardInterrupt:
             logger.info("Test interrupted by user")
         except Exception as e:
-            logger.error(f"Test failed: {e!s}")
-            raise
+            msg = f"Test failed: {e!s}"
+            logger.exception(msg)
+            raise RuntimeError(msg) from e
         finally:
             self.cap.release()
             cv2.destroyAllWindows()
