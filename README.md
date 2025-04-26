@@ -73,6 +73,13 @@ or
 2. Start web interface:
    python -m elder_care_vision.web.app
 
+or test
+
+3. Start web interface with local image video:
+   python -m elder_care_vision.web.app --video-source tools/tomasz_fall.mp4
+
+- Web Interface is available at http://127.0.0.1:5001
+
 ## State Machine Logic
 
 The system operates based on a state machine managed by the `Coordinator`. The possible states are:
