@@ -17,7 +17,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def emergency_call_tool(imageBase64: str) -> bool:
+async def emergency_call_tool(imageBase64: str, story: str = "") -> bool:
     """Process an emergency call with image analysis and audio notification.
 
     Args:
@@ -30,34 +30,41 @@ async def emergency_call_tool(imageBase64: str) -> bool:
         # Get config
         config = load_config()["emergency_call"]
 
-        # Analyze the image
-        img_analizer = ImgAnalizer()
-        text = await img_analizer.analize_image(imageBase64, config["relationship"])
-        if not text:
-            logger.error("Failed to analyze image")
-            return False
+        for contact in config["contacts"]:
+            # Analyze the image
+            img_analizer = ImgAnalizer()
+            text = await img_analizer.analize_image(imageBase64, contact["relationship"], story)
+            if not text:
+                logger.error("Failed to analyze image")
+                continue
 
-        # Convert text to speech
-        openai_service = OpenAIService()
-        audio_data = await openai_service.text_to_speech(text)
-        if not audio_data:
-            logger.error("Failed to convert text to speech")
-            return False
-
-        # Make the emergency call
-        try:
+            # Send SMS
             caller = EmergencyCallHelper()
-            success = caller.make_call(config["phone_number"], audio_data)
+            success = caller.send_sms(contact["phone_number"], text)
+            if not success:
+                logger.error("Failed to send SMS")
 
-            if success:
-                logger.info("Emergency call processed successfully")
-            else:
-                logger.error("Failed to process emergency call")
+            # Convert text to speech
+            openai_service = OpenAIService()
+            audio_data = await openai_service.text_to_speech(text)
+            if not audio_data:
+                logger.error("Failed to convert text to speech")
+                continue
 
-            return success
-        except ValueError as e:
-            logger.error("No Android device found. Please connect a device and try again.")
-            return False
+            # Make the emergency call
+            try:
+                success = caller.make_call(contact["phone_number"], audio_data)
+                if success:
+                    logger.info("Emergency call processed successfully")
+                    return True
+                else:
+                    logger.error("Failed to process emergency call")
+                    continue
+            except Exception as e:
+                logger.error("Error in emergency call processing: %s", str(e))
+                continue
+
+        return False
 
     except Exception as e:
         logger.error("Error in emergency call processing: %s", str(e))
@@ -118,6 +125,12 @@ class EmergencyCallHelper:
         except Exception as e:
             logger.error("Unexpected error occurred during call")
             return False
+
+    def send_sms(self, phone_number: str, message: str) -> bool:
+        if self.phone_manager is None:
+            logger.error("No phone manager available to send SMS")
+            return False
+        return self.phone_manager.send_sms(phone_number, message)
 
 
 if __name__ == "__main__":

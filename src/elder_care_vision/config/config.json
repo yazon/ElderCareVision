@@ -25,7 +25,11 @@
         }
     },
     "emergency_call": {
-	    "phone_number": "123456789",
-	    "relationship":"grandson"
-    }
+        "patient_name": "John Doe",
+        "patient_age": 80,
+        "address": "123 Main St, Anytown, USA",
+	    "contacts": [{"phone_number": "123456789", "relationship":"son"},
+	    {"phone_number": "123456789", "relationship":"daughter"},
+        {"phone_number": "123456789", "relationship":"emergency service"}]
+   }
 }

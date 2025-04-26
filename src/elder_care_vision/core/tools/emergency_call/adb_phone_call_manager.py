@@ -3,7 +3,10 @@
 import logging
 import time
 import io
+import textwrap
+import base64
 from enum import Enum
+from pathlib import Path
 
 import sounddevice as sd
 import soundfile as sf
@@ -140,4 +143,38 @@ class ADBPhoneCallManager:
 
         except Exception as e:
             logger.error(f"Failed to play audio: {e}")
+            return False
+
+    def send_sms(self, phone_number: str, message: str) -> bool:
+        """Send an SMS message using ADB.
+
+        Args:
+            phone_number: The recipient's phone number
+            message: The message text to send
+
+        Returns:
+            bool: True if message was sent successfully, False otherwise
+        """
+        if not phone_number or not phone_number.strip():
+            raise ValueError("Invalid phone number")
+        if not message or not message.strip():
+            raise ValueError("Invalid message")
+
+        try:
+            parts = textwrap.wrap(message, 160)
+
+            for i, part in enumerate(parts):
+                print(f"Sending part {i + 1}/{len(parts)}: {part}")
+
+                # Prepare the ADB command
+                command = f'service call isms 7 i32 0 s16 com.android.shell s16 {phone_number} s16 null s16 "{part}" s16 null s16 null s16 null'
+                self.device.shell(command)
+
+                print(command)
+
+            logger.info(f"SMS sent to {phone_number}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to send SMS: {e}")
             return False
