@@ -15,16 +15,19 @@ ElderCareVision is an advanced fall detection system that uses computer vision a
 ## Quick Start
 
 1. Install the package:
+
 ```bash
 pip install -e .
 ```
 
 2. Run with a video file:
+
 ```bash
 python -m elder_care_vision.oopsie_controller.main --video path/to/video.mp4
 ```
 
 3. Run with webcam:
+
 ```bash
 python -m elder_care_vision.oopsie_controller.main --camera 0
 ```
@@ -45,7 +48,9 @@ The OopsieController supports several command-line arguments:
 ## System Components
 
 ### OopsieController
+
 The main controller that orchestrates:
+
 - Frame acquisition and processing
 - Pose detection and analysis
 - Fall detection logic
@@ -53,28 +58,36 @@ The main controller that orchestrates:
 - Subscriber notifications
 
 ### Frame Queue System
+
 - Non-blocking frame processing
 - Real-time performance monitoring
 - Automatic queue size management
 
 ### Fall Detection
+
 Two-stage verification process:
+
 1. Algorithm-based detection using pose analysis
-2. LLM-based confirmation using frame sequences
+1. LLM-based confirmation using frame sequences
 
 ### Subscriber System
+
 Subscribe to two types of events:
+
 1. Algorithm-detected falls:
+
 ```python
 controller.add_algorithm_fall_subscriber(your_callback)
 ```
 
 2. LLM-confirmed falls:
+
 ```python
 controller.add_confirmed_fall_subscriber(your_callback)
 ```
 
 Example subscriber implementation:
+
 ```python
 def on_fall_detected(frame, timestamp):
     # Handle fall detection
@@ -101,16 +114,19 @@ The system generates the following files when falls are detected:
 Common issues and solutions:
 
 1. Video playback is laggy:
+
    - Check queue statistics
    - Reduce frame resolution
    - Increase process thread count
 
-2. False positives:
+1. False positives:
+
    - Adjust pose detection confidence threshold
    - Increase LLM cooldown period
    - Fine-tune fall detection parameters
 
-3. Missing fall events:
+1. Missing fall events:
+
    - Check frame queue size
    - Verify subscriber connections
    - Enable debug logging
@@ -122,6 +138,7 @@ We welcome contributions! Please see our [Contributing Guidelines](docs/CONTRIBU
 ## Architecture
 
 For detailed system architecture information, please refer to:
+
 - [Architecture Documentation](docs/architecture.md)
 - [Sequence Diagram](docs/sequence_diagram.puml)
 
