@@ -33,10 +33,8 @@ class PersonStateAnalyzerAgent(BaseAgent):  # Inherit from BaseAgent
     def __init__(self) -> None:
         """Initializes the Person State Analyzer agent using the BaseAgent."""
         logger.info("Initializing Person State Analyzer Agent (via BaseAgent)")
-        # Call the BaseAgent's __init__ with the specific agent name for config loading
         super().__init__(agent_name="person_state_analyzer", output_type=PersonState)
 
-        # Add the tool to the agent created by BaseAgent
         self.agent.tools.append(analyze_image)
 
         logger.info(f"Person State Analyzer Agent initialized with model: {self.model}")
