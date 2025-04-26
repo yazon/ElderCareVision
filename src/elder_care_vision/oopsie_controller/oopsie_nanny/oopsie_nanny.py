@@ -91,16 +91,18 @@ class ImageRecognizer:
                     f"- {metric}: Current value {values["current"]:.2f} exceeded threshold {values["threshold"]:.2f}\n"
                 )
 
-        prompt = """Analyze this image for potential fall detection. Consider:
-        1. Body position and orientation
-        2. Head position relative to shoulders
-        3. Overall posture and stability
-        4. Environmental context
-        5. Signs of distress or discomfort
+        prompt = """You will receive 6 historical frames captured at ~2 fps (≈ 3 s timeline). And 3 pictured taken post fall
 
-        Always provide a detailed analysis of at least 100 words, considering all these factors.
-        Always return the confidence of fall detection level in a range of 0-100 with steps of 10, where 0 is no confidence, 50 is medium confidence, and 100 is high confidence.
-        Always return the confidence level in a <fall_confidence> tags.
+        Analyse *the whole sequence* for potential fall or collapse. Consider:
+        1. Continuous downward trajectory of hips, torso, or head
+        2. Head position relative to shoulders in *each* frame and its change over time
+        3. Loss of weight-bearing posture (knees buckling, arms flailing, slump against objects)
+        4. Environmental factors that impede or cushion descent
+        5. Visible signs of distress, immobility ≥ 1 s, or abnormal vital-sign spikes
+
+        Write **≥ 100 words** covering all points.
+        Return your estimate of fall likelihood in **steps of 10 (0–100)** wrapped in `<fall_confidence>` tags.
+        **If a slow, progressive collapse is detected—even without impact—output at least 50.**
 
         If you believe the thresholds need adjustment, provide a THRESHOLD_ADJUSTMENT section with suggested new values in JSON format.
         The thresholds should be under the 'head_detection' category and can include:

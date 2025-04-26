@@ -18,7 +18,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def emergency_call_tool(fall_detection_result: FallDetectionResult, story: str = "") -> bool:
+async def emergency_call_tool(fall_detection_result: FallDetectionResult, health_status: str) -> bool:
     """Process an emergency call with image analysis and audio notification.
 
     Args:
@@ -28,6 +28,13 @@ async def emergency_call_tool(fall_detection_result: FallDetectionResult, story:
         bool: True if emergency call was processed successfully, False otherwise
     """
     try:
+        story = FallDetectionResult.analysis
+
+        if health_status == "not_ok":
+            story += "Parient is not responding"
+        elif health_status == "needs_help":
+            story += "Patient is responding but needs help"
+
         # Get config
         config = load_config()["emergency_call"]
 
