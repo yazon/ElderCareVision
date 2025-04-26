@@ -144,19 +144,19 @@ class OopsieController:
         self.algorithm_fall_subscribers = []
         self.confirmed_fall_subscribers = []
 
-        # Initialize frame history
+        # Initialize frame history with fixed time intervals
         self.frame_history = []  # Store last 6 frames
         self.frame_timestamps = []  # Store timestamps for each frame
         self.max_history_frames = 6  # Number of frames to keep in history
-        self.frame_interval = 0.5  # Seconds between frames (6 frames in 3 seconds)
+        self.frame_interval = 0.5  # Fixed interval between frames (0.5 seconds)
         self.last_frame_time = 0  # Track last frame time
         self.start_time = time.time()  # Track when processing started
         self.post_fall_frames = []  # Store frames after fall detection
         self.post_fall_timestamps = []  # Store timestamps for post-fall frames
         self.max_post_fall_frames = 6  # Number of frames to collect after fall
         self.is_collecting_post_fall = False  # Flag to track if we're collecting post-fall frames
-        self.post_fall_frame_count = 0  # Track number of frames since fall detection
-        self.post_fall_frame_interval = 10  # Collect one frame every 30 frames (assuming 10fps)
+        self.post_fall_start_time = 0  # Track when post-fall collection started
+        self.post_fall_interval = 0.5  # Fixed interval between post-fall frames (0.5 seconds)
 
         # Load thresholds from config file
         config_path = Path(__file__).parent / "config" / "thresholds.json"
@@ -1045,11 +1045,11 @@ class OopsieController:
         # Process with MediaPipe pose detection
         results = self.alert.pose.process(rgb_frame)
 
-        # Update frame history
+        # Update frame history based on fixed time intervals
         current_time = time.time()
 
-        # Only update frame history every 0.5 seconds
-        if not self.frame_timestamps or (current_time - self.frame_timestamps[-1] >= 0.5):
+        # Only update frame history every frame_interval seconds
+        if not self.frame_timestamps or (current_time - self.frame_timestamps[-1] >= self.frame_interval):
             self.frame_history.append(frame.copy())
             self.frame_timestamps.append(current_time)
 
@@ -1060,19 +1060,15 @@ class OopsieController:
 
         # Collect post-fall frames if needed
         if self.is_collecting_post_fall:
-            self.post_fall_frame_count += 1
-            if (
-                self.post_fall_frame_count >= self.post_fall_frame_interval
-                and len(self.post_fall_frames) < self.max_post_fall_frames
-            ):
+            # Check if it's time to collect the next post-fall frame
+            if current_time - self.post_fall_start_time >= self.post_fall_interval * len(self.post_fall_frames):
                 self.post_fall_frames.append(frame.copy())
                 self.post_fall_timestamps.append(current_time)
-                self.post_fall_frame_count = 0
                 logger.info(f"Collected post-fall frame {len(self.post_fall_frames)}/{self.max_post_fall_frames}")
 
             # If we've collected enough frames or if we've waited long enough (3 seconds), proceed with analysis
             if len(self.post_fall_frames) >= self.max_post_fall_frames or (
-                current_time - self.frame_timestamps[-1] > 3.0
+                current_time - self.post_fall_start_time > 3.0
             ):
                 self.is_collecting_post_fall = False
                 logger.info("Finished collecting post-fall frames")
@@ -1109,7 +1105,7 @@ class OopsieController:
                         self.is_collecting_post_fall = True
                         self.post_fall_frames = []
                         self.post_fall_timestamps = []
-                        self.post_fall_frame_count = 0
+                        self.post_fall_start_time = current_time
 
                         # Notify algorithm fall subscribers at this point
                         self._notify_algorithm_fall(frame, results.pose_landmarks, current_time)
@@ -1180,6 +1176,9 @@ class OopsieController:
 
         try:
             frame_count = 0
+            last_frame_time = time.time()
+            target_frame_interval = 1.0 / 10.0  # 10 FPS = 0.1 seconds per frame
+
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
@@ -1200,13 +1199,18 @@ class OopsieController:
                 # Display result
                 cv2.imshow("Fall Detection", processed_frame)
 
+                # Calculate time to wait to maintain 10 FPS
+                current_time = time.time()
+                elapsed = current_time - last_frame_time
+                wait_time = max(0, target_frame_interval - elapsed)
+                if wait_time > 0:
+                    time.sleep(wait_time)
+                last_frame_time = time.time()
+
                 # Break if 'q' is pressed
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     logger.info("Video processing stopped by user")
                     break
-
-                # Small delay to allow queue processing
-                time.sleep(0.001)
 
         finally:
             self.is_processing_video = False
