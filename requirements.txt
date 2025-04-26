@@ -1,9 +1,14 @@
 adb_shell>=0.4.4
+colorama==0.4.6
+matplotlib==3.8.3
 mdformat==0.7.22
-numpy==2.2.5
+mediapipe==0.10.21
+numpy==1.26.4
 openai==1.76.0
 openai-agents==0.0.13
+opencv-python==4.9.0.80
 opentelemetry-instrumentation-asyncio==0.53b1
+pillow==10.2.0
 pure-python-adb>=0.3.0.dev0
 pydantic==2.11.3
 python-dotenv==1.1.0
