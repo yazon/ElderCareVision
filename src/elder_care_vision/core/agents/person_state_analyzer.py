@@ -10,21 +10,27 @@ from typing import Union
 
 import cv2
 import numpy as np
-from pydantic import BaseModel
 
 from elder_care_vision.core.agents.psa_data import FallDetectionResult
 from elder_care_vision.oopsie_controller.oopsie_controller import OopsieController
+from elder_care_vision.utils.utils import get_static_path
 
 logger = logging.getLogger(__name__)
 
 
-class PersonState(BaseModel):
-    fall_confidence: int
-    """Represents the confidence of a fall."""
-
-
 class PersonStateAnalyzerAgent:
-    """Analyzes the state of a person based on camera data."""
+    """
+    Analyzes person state using computer vision and fall detection algorithms.
+
+    Handles camera input processing, fall detection, and event notifications.
+    Manages subscribers for different types of fall detection events.
+
+    Attributes:
+        camera_id: ID of the video capture device
+        fall_detection_result: Current fall detection status and metadata
+        output_path: Directory for saving detection outputs
+        controller: Main processing controller instance
+    """
 
     def __init__(self, video_source: Union[int, str] = 0) -> None:
         """
@@ -38,7 +44,7 @@ class PersonStateAnalyzerAgent:
         self.video_source = video_source
         self.fall_detection_result = FallDetectionResult()
         # Create output directory
-        self.output_path = Path("test_output")
+        self.output_path = get_static_path()
         self.output_path.mkdir(exist_ok=True)
 
         # Initialize controller
@@ -46,6 +52,14 @@ class PersonStateAnalyzerAgent:
 
         # Add example subscribers for testing
         def on_algorithm_fall(frame: any, _: any, timestamp: any) -> None:
+            """
+            Callback for initial algorithm-based fall detection.
+
+            Args:
+                frame: Captured video frame with detected fall
+                _: Unused confidence parameter
+                timestamp: Detection timestamp
+            """
             logger.info(f"Algorithm detected fall at {timestamp}")
             save_path = self.output_path / f"algorithm_fall_{timestamp}.jpg"
             cv2.imwrite(str(save_path), frame)
@@ -54,6 +68,15 @@ class PersonStateAnalyzerAgent:
         def on_confirmed_fall(
             frame_sequence: list[np.ndarray], _: list[float], analysis: str, confidence_level: int
         ) -> None:
+            """
+            Callback for confirmed fall events after LLM validation.
+
+            Args:
+                frame_sequence: List of video frames around detection time
+                _: Unused confidence scores list
+                analysis: Textual description of fall analysis
+                confidence_level: Final confidence score (0-100)
+            """
             logger.info(f"LLM confirmed fall {analysis} with confidence level {confidence_level}")
             logger.info(
                 f"Updating fall_detection_result confidence from {self.fall_detection_result.confidence_level} to {confidence_level}"
@@ -72,7 +95,18 @@ class PersonStateAnalyzerAgent:
         self.controller.add_confirmed_fall_subscriber(on_confirmed_fall)
 
     async def process_image(self) -> None:
-        """Run the Person State Analyzer agent."""
+        """
+        Main processing loop for camera frames.
+
+        Handles:
+        - Camera initialization and frame capture
+        - Frame processing through controller
+        - Debug overlay rendering
+        - System shutdown cleanup
+
+        Raises:
+            RuntimeError: If frame processing fails unexpectedly
+        """
         debug_overlay = True
         frame_count = 0
 
@@ -128,10 +162,18 @@ class PersonStateAnalyzerAgent:
             cv2.destroyAllWindows()
 
     async def run(self) -> int:
-        """Run the Person State Analyzer agent in a separate thread."""
+        """
+        Start the analyzer in a background thread.
+
+        Returns:
+            int: Always returns 0 to indicate successful thread start
+
+        Note:
+            Runs as daemon thread to allow clean program exit
+        """
 
         def run_process_image() -> None:
-            """Run process_image in a new event loop."""
+            """Helper function to run async process in new event loop."""
             asyncio.run(self.process_image())
 
         thread = threading.Thread(target=run_process_image)

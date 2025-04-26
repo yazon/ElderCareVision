@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elder Care Vision Status</title>
+    <style>
+        /* Modern Font */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 30px;
+            background-color: #f8f9fa; /* Lighter gray */
+            color: #495057; /* Softer text color */
+            line-height: 1.6;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 12px; /* Slightly larger radius */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); /* Softer shadow */
+            max-width: 900px;
+            margin: auto;
+        }
+        h1 {
+            color: #212529; /* Darker heading */
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 700;
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); /* Adjust min width */
+            gap: 25px; /* Increase gap */
+            margin-top: 25px;
+        }
+        .status-item {
+            background-color: #ffffff; /* Keep item bg white for contrast */
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e9ecef; /* Subtle border */
+            transition: box-shadow 0.3s ease; /* Add hover effect */
+        }
+        .status-item:hover {
+             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+        .status-item h3 {
+            margin-top: 0;
+            margin-bottom: 15px; /* Increase spacing */
+            color: #007bff; /* Use a primary color */
+            border-bottom: 2px solid #dee2e6;
+            padding-bottom: 10px;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+        .status-item p {
+            margin: 8px 0; /* Adjust spacing */
+            word-wrap: break-word;
+            color: #495057;
+        }
+        .status-item strong {
+            color: #343a40; /* Slightly darker strong text */
+            font-weight: 600;
+        }
+        .status-item pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background-color: #f1f3f5; /* Lighter pre background */
+            padding: 12px;
+            border-radius: 6px;
+            max-height: 150px;
+            overflow-y: auto;
+            font-family: 'Courier New', Courier, monospace; /* Monospace font */
+            font-size: 0.9em;
+            color: #343a40;
+            border: 1px solid #e0e0e0;
+        }
+        #fallImage {
+            max-width: 100%;
+            height: auto;
+            margin-top: 15px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+        }
+        .image-container {
+            text-align: center;
+            margin-top: 15px;
+        }
+        .placeholder {
+            color: #adb5bd; /* Lighter placeholder text */
+            font-style: italic;
+        }
+        .highlight {
+            font-weight: bold;
+            padding: 4px 8px; /* Adjust padding */
+            border-radius: 5px; /* Rounder corners */
+            display: inline-block; /* Ensures padding applies correctly */
+            transition: background-color 0.3s ease, color 0.3s ease; /* Smooth transition */
+        }
+        /* Updated State Colors for better contrast and modern feel */
+        .state-ANALYZING_IMAGE { background-color: #e0f7fa; color: #0077c2; border: 1px solid #b3e5fc; }
+        .state-INQUIRING_HEALTH { background-color: #fff9c4; color: #f57f17; border: 1px solid #fff176; }
+        .state-CALLING_EMERGENCY { background-color: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Elder Care Vision - Live Status</h1>
+
+        <div class="status-grid">
+            <div class="status-item">
+                <h3>System State</h3>
+                <p><strong>Current State:</strong> <span id="currentState" class="placeholder highlight">Loading...</span></p>
+            </div>
+
+            <div class="status-item">
+                <h3>Person State Analysis (PSA)</h3>
+                <p><strong>Last Confidence:</strong> <span id="lastPsaConfidence" class="placeholder">Loading...</span>%</p>
+                <p><strong>Fall Detected Confidence:</strong> <span id="fallConfidence" class="placeholder">Loading...</span>%</p>
+                <p><strong>Analysis:</strong></p>
+                <pre id="fallAnalysis" class="placeholder">Loading...</pre>
+            </div>
+
+            <div class="status-item">
+                <h3>Health Status Inquiry</h3>
+                <p><strong>Reported Status:</strong> <span id="healthStatus" class="placeholder">Loading...</span></p>
+            </div>
+
+            <div class="status-item">
+                <h3>Detected Image</h3>
+                 <div class="image-container">
+                    <img id="fallImage" src="" alt="Fall Detection Image" style="display: none;"/>
+                    <span id="imagePlaceholder" class="placeholder">No image available yet.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const POLLING_INTERVAL_MS = {{ polling_interval_ms | default(500) }}; // Get from Flask, default 500ms
+
+        function updateElement(id, value, isHtml = false) {
+            const element = document.getElementById(id);
+            if (element) {
+                if (value === null || value === undefined || value === '') {
+                    element.textContent = 'N/A';
+                    element.classList.add('placeholder');
+                } else {
+                    if (isHtml) {
+                        element.innerHTML = value;
+                    } else {
+                        element.textContent = value;
+                    }
+                    element.classList.remove('placeholder');
+                }
+            }
+        }
+
+        function updateStateHighlight(stateValue) {
+            const stateElement = document.getElementById('currentState');
+            if (stateElement) {
+                // Remove previous state classes
+                stateElement.classList.remove('state-ANALYZING_IMAGE', 'state-INQUIRING_HEALTH', 'state-CALLING_EMERGENCY');
+                // Add class based on current state
+                if (stateValue) {
+                    stateElement.classList.add(`state-${stateValue}`);
+                }
+            }
+        }
+
+        async function fetchAndUpdateContext() {
+            try {
+                const response = await fetch('/api/context');
+                if (!response.ok) {
+                    console.error('Failed to fetch context:', response.statusText);
+                    return;
+                }
+                const context = await response.json();
+
+                // Update simple fields
+                updateElement('currentState', context.current_state);
+                updateStateHighlight(context.current_state); // Update background based on state
+                updateElement('lastPsaConfidence', context.last_psa_confidence);
+                updateElement('healthStatus', context.health_status);
+
+                // Update fall detection results
+                if (context.fall_detection_result) {
+                    updateElement('fallConfidence', context.fall_detection_result.confidence_level);
+                    updateElement('fallAnalysis', context.fall_detection_result.analysis);
+
+                    // Update image
+                    const imgElement = document.getElementById('fallImage');
+                    const imgPlaceholder = document.getElementById('imagePlaceholder');
+                    const base64Image = context.fall_detection_result.fall_image;
+
+                    if (base64Image && imgElement && imgPlaceholder) {
+                        // Assuming JPEG, adjust if needed (e.g., image/png)
+                        imgElement.src = `data:image/jpeg;base64,${base64Image}`;
+                        imgElement.style.display = 'block';
+                        imgPlaceholder.style.display = 'none';
+                    } else if (imgElement && imgPlaceholder) {
+                        imgElement.style.display = 'none';
+                        imgPlaceholder.style.display = 'block';
+                         imgPlaceholder.textContent = 'No image available.';
+                    }
+                } else {
+                     updateElement('fallConfidence', 'N/A');
+                     updateElement('fallAnalysis', 'N/A');
+                     const imgElement = document.getElementById('fallImage');
+                     const imgPlaceholder = document.getElementById('imagePlaceholder');
+                     if (imgElement && imgPlaceholder) {
+                         imgElement.style.display = 'none';
+                         imgPlaceholder.style.display = 'block';
+                         imgPlaceholder.textContent = 'No fall detection data.';
+                     }
+                }
+
+            } catch (error) {
+                console.error('Error fetching or updating context:', error);
+            }
+        }
+
+        // Initial fetch and start polling
+        fetchAndUpdateContext();
+        setInterval(fetchAndUpdateContext, POLLING_INTERVAL_MS);
+    </script>
+</body>
+</html>

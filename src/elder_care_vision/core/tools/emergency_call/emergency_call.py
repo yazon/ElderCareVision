@@ -1,17 +1,38 @@
-"""Example usage of ADBPhoneCallManager for making and managing phone calls."""
+"""
+Emergency Call System Module
 
+This module provides functionality for handling emergency situations through automated calls and SMS notifications.
+It integrates image analysis, text-to-speech conversion, and phone communication capabilities to provide a comprehensive
+emergency response system.
+
+The system works by:
+1. Analyzing images for emergency situations
+2. Generating appropriate notification messages
+3. Converting messages to speech
+4. Making emergency calls with audio messages
+5. Sending SMS notifications as backup
+
+Example:
+    ```python
+    from elder_care_vision.core.tools.emergency_call import emergency_call_tool
+
+    # Process an emergency situation
+    success = await emergency_call_tool(fall_detection_result, health_status)
+    ```
+"""
+
+import asyncio
 import base64
 import logging
-import asyncio
 import time
 from pathlib import Path
 
 from elder_care_vision.config.logging_config import setup_logging
+from elder_care_vision.core.agents.psa_data import FallDetectionResult
 from elder_care_vision.core.tools.emergency_call.adb_phone_call_manager import ADBPhoneCallManager
 from elder_care_vision.core.tools.emergency_call.img_analizer import ImgAnalizer
 from elder_care_vision.services.openai_service import OpenAIService
 from elder_care_vision.utils.utils import load_config
-from elder_care_vision.core.agents.psa_data import FallDetectionResult
 
 setup_logging()
 
@@ -19,13 +40,28 @@ logger = logging.getLogger(__name__)
 
 
 async def emergency_call_tool(fall_detection_result: FallDetectionResult, health_status: str) -> bool:
-    """Process an emergency call with image analysis and audio notification.
+    """
+    Process an emergency call with image analysis and audio notification.
+
+    This function handles the complete emergency response process:
+    1. Analyzes the fall detection result
+    2. Generates appropriate messages based on health status
+    3. Sends SMS notifications to all configured contacts
+    4. Makes emergency calls with audio messages
+    5. Handles any errors that occur during the process
 
     Args:
-        imageBase64: Base64 encoded image string
+        fall_detection_result: The result of fall detection analysis
+        health_status: Current health status of the patient ("not_ok" or "needs_help")
 
     Returns:
         bool: True if emergency call was processed successfully, False otherwise
+
+    Example:
+        ```python
+        result = FallDetectionResult(...)
+        success = await emergency_call_tool(result, "needs_help")
+        ```
     """
     try:
         story = FallDetectionResult.analysis
@@ -66,9 +102,8 @@ async def emergency_call_tool(fall_detection_result: FallDetectionResult, health
                 if success:
                     logger.info("Emergency call processed successfully")
                     return True
-                else:
-                    logger.error("Failed to process emergency call")
-                    continue
+                logger.error("Failed to process emergency call")
+                continue
             except Exception as e:
                 logger.error("Error in emergency call processing: %s", str(e))
                 continue
@@ -81,14 +116,61 @@ async def emergency_call_tool(fall_detection_result: FallDetectionResult, health
 
 
 class EmergencyCallHelper:
+    """
+    Helper class for managing emergency calls and SMS notifications.
+
+    This class provides methods for:
+    - Making emergency phone calls
+    - Sending SMS notifications
+    - Playing audio messages during calls
+    - Managing call status and duration
+
+    Attributes:
+        phone_manager: Instance of ADBPhoneCallManager for handling phone operations
+
+    Example:
+        ```python
+        helper = EmergencyCallHelper()
+        success = helper.make_call("1234567890", audio_data)
+        ```
+    """
+
     def __init__(self):
+        """
+        Initialize the EmergencyCallHelper.
+
+        Raises:
+            ValueError: If no Android device is found
+        """
         try:
             self.phone_manager = ADBPhoneCallManager()
-        except ValueError as e:
+        except ValueError:
             logger.error("No Android device found. Please connect a device and try again.")
             raise
 
     def make_call(self, phone_number: str, audio_data: bytes) -> bool:
+        """
+        Make an emergency call with audio message.
+
+        This method:
+        1. Initiates a call to the specified number
+        2. Waits for the call to be answered
+        3. Plays the audio message
+        4. Monitors call status
+        5. Ends the call when done
+
+        Args:
+            phone_number: The phone number to call
+            audio_data: The audio message to play during the call
+
+        Returns:
+            bool: True if call was successful, False otherwise
+
+        Example:
+            ```python
+            success = helper.make_call("1234567890", audio_data)
+            ```
+        """
         if self.phone_manager is None:
             logger.error("No phone manager available to make a call")
             return False
@@ -118,8 +200,7 @@ class EmergencyCallHelper:
                     if phone_manager.end_call():
                         logger.info("Call ended successfully")
                         return True
-                    else:
-                        logger.warning("Failed to end call")
+                    logger.warning("Failed to end call")
                 else:
                     phone_manager.end_call()
                     logger.warning("Call did not become active within timeout period")
@@ -128,14 +209,29 @@ class EmergencyCallHelper:
 
             return False
 
-        except RuntimeError as e:
+        except RuntimeError:
             logger.error("Runtime error occurred during call")
             return False
-        except Exception as e:
+        except Exception:
             logger.error("Unexpected error occurred during call")
             return False
 
     def send_sms(self, phone_number: str, message: str) -> bool:
+        """
+        Send an SMS notification.
+
+        Args:
+            phone_number: The phone number to send the SMS to
+            message: The message text to send
+
+        Returns:
+            bool: True if SMS was sent successfully, False otherwise
+
+        Example:
+            ```python
+            success = helper.send_sms("1234567890", "Emergency notification")
+            ```
+        """
         if self.phone_manager is None:
             logger.error("No phone manager available to send SMS")
             return False

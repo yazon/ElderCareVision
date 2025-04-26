@@ -68,6 +68,11 @@ OPENAI_API_KEY=your-key-here
 1. Start main system:
    python -m elder_care_vision.main
 
+or
+
+2. Start web interface:
+   python -m elder_care_vision.web.app
+
 ## State Machine Logic
 
 The system operates based on a state machine managed by the `Coordinator`. The possible states are:
@@ -107,7 +112,7 @@ The thresholds (`confidence_threshold_1`, `confidence_threshold_2`) and emergenc
 
    - Use dedicated camera with 1080p+ resolution
    - Position microphone within 2m of monitoring area
-   - Maintain ambient noise < 50dB
+   - Maintain ambient noise
 
 1. Monitoring Configuration
 

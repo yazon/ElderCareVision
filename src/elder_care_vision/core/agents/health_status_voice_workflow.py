@@ -16,14 +16,28 @@ logger = logging.getLogger(__name__)
 
 
 class HealthStatusResult(BaseModel):
-    """Result of the health status inquiry."""
+    """
+    Result model for health status inquiry containing analysis results.
+
+    Attributes:
+        status: Categorized health status (OK/NeedsHelp/NotOK)
+        transcription: Cleaned version of user's response transcription
+    """
 
     status: str
     transcription: str
 
 
 class HealthStatusVoiceWorkflow(VoiceWorkflowBase):
-    """Voice workflow for health status inquiry."""
+    """
+    Voice workflow for health status inquiry using AI agent analysis.
+
+    Handles the complete voice interaction flow including:
+    - Speech-to-text conversion of user responses
+    - Health status analysis using LLM agent
+    - Text-to-speech response generation
+    - Conversation history management
+    """
 
     PROMPT = """
     You are a helpful and kind health status inquiry agent.
@@ -100,6 +114,12 @@ class HealthStatusVoiceWorkflow(VoiceWorkflowBase):
         self._current_agent = self.agent
 
     def get_prompt(self) -> str:
+        """
+        Format and return the system prompt with current configuration values.
+
+        Returns:
+            str: Fully formatted system prompt with injected config values
+        """
         return self.PROMPT.format(
             health_status_ok=self.health_status_ok,
             health_status_not_ok=self.health_status_not_ok,
@@ -107,19 +127,31 @@ class HealthStatusVoiceWorkflow(VoiceWorkflowBase):
         )
 
     def get_audio_prompt(self, iteration: int) -> str:
+        """
+        Get appropriate voice prompt based on conversation iteration.
+
+        Args:
+            iteration: Current interaction attempt count (0=first try)
+
+        Returns:
+            str: Initial ask prompt for iteration 0, retry prompt otherwise
+        """
         if iteration > 0:
             return self.retry_ask_prompt
         return self.initial_ask_prompt
 
     async def run(self, transcription: str) -> AsyncIterator[str]:
         """
-        Process the transcription from the user and determine health status.
+        Process user response and generate appropriate health status assessment.
 
         Args:
-            transcription: The transcribed text from user's speech
+            transcription: Raw text input from user's voice response
 
         Yields:
-            Appropriate responses to be converted to speech
+            str: Categorized health status string from analysis
+
+        Notes:
+            Updates conversation history and agent state after each interaction
         """
         logger.info(f"Processing transcription: {transcription}")
 

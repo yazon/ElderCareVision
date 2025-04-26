@@ -27,7 +27,7 @@ import tkinter as tk
 from concurrent.futures import ThreadPoolExecutor
 from tkinter import scrolledtext
 
-from PIL import Image, ImageTk, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 from .oopsie_alert.oopsie_alert import FallDetector
 from .oopsie_nanny.oopsie_nanny import ImageRecognizer
@@ -502,7 +502,7 @@ class OopsieController:
 
                         # Add a title to the sequence image
                         draw = ImageDraw.Draw(final_image)
-                        font = ImageFont.truetype("DejaVuSans.ttf", 16)
+                        font = ImageFont.truetype("arial.ttf", 16)  # Use Arial font
                         draw.text((10, 10), "Fall Detection Sequence", fill=(255, 255, 255), font=font)
 
                         # Convert to PhotoImage
@@ -513,7 +513,7 @@ class OopsieController:
                         # Update last modification time
                         self.last_sequence_mtime = current_mtime
                 except Exception as e:
-                    logger.error(f"Error updating sequence image: {e!s}")
+                    logger.exception(f"Error updating sequence image: {e!s}")
 
             # Schedule next update
             if hasattr(self, "root"):
