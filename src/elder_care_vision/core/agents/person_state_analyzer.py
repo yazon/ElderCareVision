@@ -58,9 +58,8 @@ class PersonStateAnalyzerAgent:
             logger.info(
                 f"Updating fall_detection_result confidence from {self.fall_detection_result.confidence_level} to {confidence_level}"
             )
-            if self.fall_detection_result.confidence_level == -1:  # update confidance level
-                self.fall_detection_result.confidence_level = confidence_level
             self.fall_detection_result.analysis = analysis
+            self.fall_detection_result.confidence_level = confidence_level
             # Encode last frame
             _, buffer = cv2.imencode(".jpg", frame_sequence[-1])
             self.fall_detection_result.fall_image = base64.b64encode(buffer).decode("utf-8")
@@ -94,7 +93,6 @@ class PersonStateAnalyzerAgent:
 
                 # Process frame
                 processed_frame, confidence_level = self.controller.process_frame(frame)
-                logger.info(f"### Confidance level debug {confidence_level}")
                 frame_count += 1
 
                 # Show debug info

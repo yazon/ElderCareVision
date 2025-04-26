@@ -1029,7 +1029,7 @@ class OopsieController:
         logger.info(f"Notifying subscribers of confirmed fall with confidence level {confidence_level}")
         for subscriber in self.confirmed_fall_subscribers:
             try:
-                subscriber(frame_sequence, analysis, confidence_level)
+                subscriber(frame_sequence, self.frame_timestamps.copy(), analysis, confidence_level)
             except Exception as e:
                 logger.error(f"Error in confirmed fall subscriber: {e!s}")
 
