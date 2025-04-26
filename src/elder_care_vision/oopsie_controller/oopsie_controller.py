@@ -1017,19 +1017,19 @@ class OopsieController:
             except Exception as e:
                 logger.error(f"Error in algorithm fall subscriber: {e!s}")
 
-    def _notify_confirmed_fall(self, _: str, analysis: str, confidence_level: int) -> None:
+    def _notify_confirmed_fall(self, frame_sequence: list[np.ndarray], analysis: str, confidence_level: int) -> None:
         """
-        Notify all confirmed fall subscribers.
+        Notifies all subscribers about a confirmed fall.
 
         Args:
-            sequence_path: Path to the frame sequence image (unused)
-            analysis: The LLM analysis text
-            timestamp: Time of confirmation
+            frame_sequence: List of frames from the fall sequence
+            analysis: Analysis of the fall
+            confidence_level: Confidence level of the fall detection
         """
+        logger.info(f"Notifying subscribers of confirmed fall with confidence level {confidence_level}")
         for subscriber in self.confirmed_fall_subscribers:
             try:
-                # Pass the actual frame history and timestamps instead of the sequence path
-                subscriber(self.frame_history.copy(), self.frame_timestamps.copy(), analysis, confidence_level)
+                subscriber(frame_sequence, analysis, confidence_level)
             except Exception as e:
                 logger.error(f"Error in confirmed fall subscriber: {e!s}")
 
@@ -1142,7 +1142,9 @@ class OopsieController:
                     self.fall_confirmed = True
                     # Notify confirmed fall subscribers
                     if hasattr(self, "frame_history") and hasattr(self, "frame_timestamps"):
-                        self._notify_confirmed_fall(None, analysis, self.confirmed_fall_confidence_level)
+                        self._notify_confirmed_fall(
+                            self.frame_history.copy(), analysis, self.confirmed_fall_confidence_level
+                        )
 
                 # Check for threshold adjustments
                 if "THRESHOLD_ADJUSTMENT:" in analysis:
