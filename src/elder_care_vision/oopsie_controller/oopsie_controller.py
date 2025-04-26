@@ -147,13 +147,13 @@ class OopsieController:
         # Initialize frame history with fixed time intervals
         self.frame_history = []  # Store last 6 frames
         self.frame_timestamps = []  # Store timestamps for each frame
-        self.max_history_frames = 16  # Number of frames to keep in history
+        self.max_history_frames = 6  # Number of frames to keep in history
         self.frame_interval = 0.5  # Fixed interval between frames (0.5 seconds)
         self.last_frame_time = 0  # Track last frame time
         self.start_time = time.time()  # Track when processing started
         self.post_fall_frames = []  # Store frames after fall detection
         self.post_fall_timestamps = []  # Store timestamps for post-fall frames
-        self.max_post_fall_frames = 6  # Number of frames to collect after fall
+        self.max_post_fall_frames = 3  # Number of frames to collect after fall
         self.is_collecting_post_fall = False  # Flag to track if we're collecting post-fall frames
         self.post_fall_start_time = 0  # Track when post-fall collection started
         self.post_fall_interval = 0.5  # Fixed interval between post-fall frames (0.5 seconds)
@@ -502,7 +502,10 @@ class OopsieController:
 
                         # Add a title to the sequence image
                         draw = ImageDraw.Draw(final_image)
-                        font = ImageFont.truetype("arial.ttf", 16)  # Use Arial font
+                        try:
+                            font = ImageFont.truetype("arial.ttf", 16)  # Use Arial font
+                        except:
+                            font = ImageFont.truetype("DejaVuSans.ttf", 16)
                         draw.text((10, 10), "Fall Detection Sequence", fill=(255, 255, 255), font=font)
 
                         # Convert to PhotoImage
