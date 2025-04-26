@@ -6,22 +6,16 @@ from datetime import datetime, UTC
 from pathlib import Path
 import threading
 import asyncio
-
+from dataclasses import dataclass
 import numpy as np
-
+import base64
 from agents import function_tool
 from pydantic import BaseModel
 
 from elder_care_vision.oopsie_controller.oopsie_controller import OopsieController
+from elder_care_vision.core.agents.psa_data import FallDetectionResult
 
 logger = logging.getLogger(__name__)
-
-
-@function_tool
-def analyze_image(image_data: str) -> str:
-    """Analyze the image and return a string describing the person's state."""
-    logger.info(f"Analyzing image: {image_data}")
-    return "Person is laying on the floor"
 
 
 class PersonState(BaseModel):
@@ -35,9 +29,8 @@ class PersonStateAnalyzerAgent:
     def __init__(self, camera_id: int = 0) -> None:
         """Initializes the Person State Analyzer agent."""
         logger.info("Initializing Person State Analyzer Agent")
-        self.confidence_level = 0
         self.camera_id = camera_id
-
+        self.fall_detection_result = FallDetectionResult()
         # Create output directory
         self.output_path = Path("test_output")
         self.output_path.mkdir(exist_ok=True)
@@ -46,14 +39,21 @@ class PersonStateAnalyzerAgent:
         self.controller = OopsieController()
 
         # Add example subscribers for testing
-        def on_algorithm_fall(frame, timestamp) -> None:
+        def on_algorithm_fall(frame, landmarks, timestamp) -> None:
             logger.info(f"Algorithm detected fall at {timestamp}")
             save_path = self.output_path / f"algorithm_fall_{timestamp}.jpg"
             cv2.imwrite(str(save_path), frame)
             logger.info(f"Saved fall detection frame to {save_path}")
 
-        def on_confirmed_fall(frame_sequence: list[np.ndarray], analysis: str) -> None:
-            logger.info(f"LLM confirmed fall: {analysis}")
+        def on_confirmed_fall(
+            frame_sequence: list[np.ndarray], timestamps: list[float], analysis: str, confidence_level: int
+        ) -> None:
+            logger.info(f"LLM confirmed fall {analysis} with confidence level {confidence_level}")
+            self.fall_detection_result.confidence_level = confidence_level
+            self.fall_detection_result.analysis = analysis
+            # Encode last frame
+            _, buffer = cv2.imencode(".jpg", frame_sequence[-1])
+            self.fall_detection_result.fall_image = base64.b64encode(buffer).decode("utf-8")
             timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
             save_path = self.output_path / f"confirmed_fall_{timestamp}.jpg"
             cv2.imwrite(str(save_path), frame_sequence[-1])  # Save last frame
@@ -106,18 +106,7 @@ class PersonStateAnalyzerAgent:
                 cv2.imshow("ElderCareVision Test", processed_frame)
 
                 # Handle keyboard input
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord("q"):
-                    logger.info("Quitting...")
-                    break
-                if key == ord("s"):
-                    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-                    save_path = self.output_path / f"test_frame_{timestamp}.jpg"
-                    cv2.imwrite(str(save_path), processed_frame)
-                    logger.info(f"Saved frame to {save_path}")
-                elif key == ord("d"):
-                    debug_overlay = not debug_overlay
-                    logger.info(f"Debug overlay: {"on" if debug_overlay else "off"}")
+                _ = cv2.waitKey(1) & 0xFF
 
         except KeyboardInterrupt:
             logger.info("Test interrupted by user")

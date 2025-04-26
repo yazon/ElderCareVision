@@ -182,3 +182,7 @@ cython_debug/
 
 # PyCharm
 .idea/
+
+
+# Ignore all files in the test_output directory
+test_output/*

@@ -11,13 +11,14 @@ from elder_care_vision.core.tools.emergency_call.adb_phone_call_manager import A
 from elder_care_vision.core.tools.emergency_call.img_analizer import ImgAnalizer
 from elder_care_vision.services.openai_service import OpenAIService
 from elder_care_vision.utils.utils import load_config
+from elder_care_vision.core.agents.psa_data import FallDetectionResult
 
 setup_logging()
 
 logger = logging.getLogger(__name__)
 
 
-async def emergency_call_tool(imageBase64: str) -> bool:
+async def emergency_call_tool(fall_detection_result: FallDetectionResult) -> bool:
     """
     Process an emergency call with image analysis and audio notification.
 
