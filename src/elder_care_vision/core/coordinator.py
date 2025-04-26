@@ -152,7 +152,7 @@ class Coordinator:
             # Transition based on PSA confidence
             if confidence_level > self.confidence_threshold_1:
                 self.transition_to_state(CoordinatorState.CALLING_EMERGENCY)
-            elif confidence_level > self.confidence_threshold_2:
+            elif confidence_level >= self.confidence_threshold_2:
                 self.transition_to_state(CoordinatorState.INQUIRING_HEALTH)
             else:
                 self.transition_to_state(CoordinatorState.ANALYZING_IMAGE)
