@@ -6,7 +6,7 @@ from pathlib import Path
 
 import cv2
 
-from .oopsie_controller import OopsieController
+from elder_care_vision.oopsie_controller.oopsie_controller import OopsieController
 
 
 def manual_camera_test(camera_id: int = 0, output_dir: str = "test_output") -> None:

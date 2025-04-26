@@ -8,7 +8,7 @@ import time
 import cv2
 import numpy as np
 
-from .oopsie_controller import OopsieController
+from elder_care_vision.oopsie_controller.oopsie_controller import OopsieController
 
 
 def create_frame_sequence(frames, timestamps, width=None):

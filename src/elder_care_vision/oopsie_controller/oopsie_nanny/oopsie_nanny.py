@@ -6,12 +6,14 @@ overly-sensitive fall detection from causing unnecessary panic. It uses OpenAI's
 vision capabilities to provide a second opinion on potential falls.
 """
 
+import asyncio
 import base64
 import logging
-import os
+import re
 
 from dotenv import load_dotenv
-from openai import OpenAI
+
+from elder_care_vision.services.openai_service import OpenAIService
 
 # Configure logging
 logging.basicConfig(
@@ -34,11 +36,9 @@ class ImageRecognizer:
     def __init__(self):
         """Initialize the ImageRecognizer with API configuration."""
         load_dotenv()
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment variables")
-        self.client = OpenAI(api_key=self.api_key)
-        logger.info("ImageRecognizer initialized with OpenAI API key")
+        self.model = "gpt-4.1-mini"
+        self.openai_service = OpenAIService()
+        logger.info("ImageRecognizer initialized with OpenAI service")
 
     def encode_image(self, image_path: str) -> str:
         """
@@ -68,7 +68,7 @@ class ImageRecognizer:
             logger.error(f"Error encoding image {image_path}: {e!s}")
             raise
 
-    def analyze_image(self, image_path: str, threshold_values: dict | None = None) -> str:
+    async def analyze_image(self, image_path: str, threshold_values: dict | None = None) -> str:
         """
         Analyze an image for potential falls using OpenAI's API.
 
@@ -98,8 +98,9 @@ class ImageRecognizer:
         4. Environmental context
         5. Signs of distress or discomfort
 
-        Provide a detailed analysis of at least 100 words, considering all these factors.
-        Conclude with a clear verdict: either 'CONFIRMED FALL' or 'NO FALL'.
+        Always provide a detailed analysis of at least 100 words, considering all these factors.
+        Always return the confidence of fall detection level in a range of 0-100 with steps of 10, where 0 is no confidence, 50 is medium confidence, and 100 is high confidence.
+        Always return the confidence level in a <fall_confidence> tags.
 
         If you believe the thresholds need adjustment, provide a THRESHOLD_ADJUSTMENT section with suggested new values in JSON format.
         The thresholds should be under the 'head_detection' category and can include:
@@ -121,27 +122,34 @@ class ImageRecognizer:
 
         logger.info("Sending request to OpenAI API")
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-4.1-mini",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
-                        ],
-                    }
-                ],
-                max_tokens=500,
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": prompt},
+                        {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"},
+                    ],
+                }
+            ]
+
+            response = await self.openai_service.chat(
+                messages=messages,
+                model=self.model,
             )
 
             logger.info("Received response from OpenAI API")
-            analysis = response.choices[0].message.content
+            analysis = response["content"]
             logger.info(f"Analysis result: {analysis}")
 
             # Check if this is a fall
-            is_fall = "CONFIRMED FALL" in analysis.upper()
-            logger.info(f"Fall confirmation status: {is_fall}")
+            # Extract the confidence level from the <fall_confidence> tags
+            confidence_level = re.search(r"<fall_confidence>(.*?)</fall_confidence>", analysis)
+            if confidence_level:
+                confidence_level = confidence_level.group(1)
+                logger.info(f"Fall confidence level: {confidence_level}")
+            else:
+                logger.error("No fall confidence level found")
+                confidence_level = 100.0
 
             return analysis
 
@@ -150,7 +158,7 @@ class ImageRecognizer:
             raise
 
 
-def main():
+async def main():
     # Example usage
     recognizer = ImageRecognizer()
 
@@ -159,7 +167,7 @@ def main():
 
     try:
         # Analyze the image
-        result = recognizer.analyze_image(image_path)
+        result = await recognizer.analyze_image(image_path)
         print("\nAnalysis Result:")
         print(result)
     except Exception as e:
@@ -167,4 +175,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
