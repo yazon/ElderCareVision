@@ -6,7 +6,7 @@ AI-powered system for elderly care monitoring with fall detection and health sta
 
 ## Features
 
-- **State-Driven Coordination**\
+- **State-Driven Coordination**
   Three operational states managed by Coordinator:
 
   - Image analysis (fall detection)
@@ -124,3 +124,4 @@ The thresholds (`confidence_threshold_1`, `confidence_threshold_2`) and emergenc
 - Hardware Requirements:
   - Integrated webcam for real-time processing
   - Noise-canceling microphone array suggested
+  - External camera: Reolink E340 (Optional)
