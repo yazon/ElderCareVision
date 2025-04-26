@@ -31,7 +31,8 @@ class CoordinatorContext:
 
     current_state: CoordinatorState = CoordinatorState.ANALYZING_IMAGE
     image_data: dict | None = field(default=None)  # Data from fall detection
-    psa_confidence: float | None = field(default=None)  # Confidence from person state analyzer
+    psa_confidence: int | None = field(default=0)  # Confidence from person state analyzer
+    last_psa_confidence: int | None = field(default=0)  # Last confidence from person state analyzer
     health_status: str | None = field(default=None)  # Health status from health status inquiry
     image_base64: str | None = field(default=None)  # Image base64 from fall detection
     # Add other shared data fields as needed
@@ -69,11 +70,13 @@ class Coordinator:
 
     def transition_to_state(self, new_state: CoordinatorState) -> None:
         """Transitions to a new state."""
+        # if new_state != self.context.current_state:
         self.context.current_state = new_state
-        logger.info(f"Transitioning to state: {new_state.name}")
+        # logger.info(f"Transitioning to state: {new_state.name}")
 
     async def run(self) -> None:
         """Runs the coordinator state machine."""
+        await self.person_state_analyzer_agent.run()
         while True:
             await self.process()
 
@@ -94,19 +97,17 @@ class Coordinator:
 
     async def process_analyzing_image_state(self) -> None:
         """Processes the analyzing image state."""
-        logger.info("---- BEGINNING OF ANALYZING IMAGE STATE ----")
-        # Use the person_state_analyzer_agent and image_data from context
-        psa_output = await Runner.run(self.person_state_analyzer_agent.get_agent(), input="")
-        self.context.psa_confidence = psa_output.final_output.fall_confidence
-        logger.info(f"PSA confidence: {self.context.psa_confidence}")
+        if self.context.psa_confidence != self.context.last_psa_confidence:
+            logger.info(f"PSA confidence: {self.context.psa_confidence}")
+            self.context.last_psa_confidence = self.context.psa_confidence
 
-        # Transition based on PSA confidence
-        if self.context.psa_confidence > self.confidence_threshold_1:
-            self.transition_to_state(CoordinatorState.CALLING_EMERGENCY)
-        elif self.context.psa_confidence > self.confidence_threshold_2:
-            self.transition_to_state(CoordinatorState.INQUIRING_HEALTH)
-        else:
-            self.transition_to_state(CoordinatorState.ANALYZING_IMAGE)
+            # Transition based on PSA confidence
+            if self.context.psa_confidence > self.confidence_threshold_1:
+                self.transition_to_state(CoordinatorState.CALLING_EMERGENCY)
+            elif self.context.psa_confidence > self.confidence_threshold_2:
+                self.transition_to_state(CoordinatorState.INQUIRING_HEALTH)
+            else:
+                self.transition_to_state(CoordinatorState.ANALYZING_IMAGE)
 
     async def process_inquiring_health_state(self) -> None:
         """Processes the inquiring health state."""
