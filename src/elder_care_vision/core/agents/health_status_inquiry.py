@@ -24,10 +24,12 @@ class HealthStatusInquiryAgent:
     CHANNELS = 1
     FORMAT = np.int16
     RECORDING_TIMEOUT = 8  # Maximum recording time in seconds
+    MAX_ITERATIONS = 2
 
     def __init__(self) -> None:
         """Initializes the Health Status Inquiry agent using the BaseAgent."""
         logger.info("Initializing Health Status Inquiry Agent")
+        self.iteration = 0
 
     async def run_agent(self) -> str:
         """Runs the health status inquiry agent."""
@@ -45,80 +47,89 @@ class HealthStatusInquiryAgent:
 
         stt_model = OpenAISTTModel(model="gpt-4o-mini-transcribe", openai_client=openai_client)
         tts_model = OpenAITTSModel(model="gpt-4o-mini-tts", openai_client=openai_client)
+        tts_settings = TTSModelSettings(voice="ash")
+        stt_settings = STTModelSettings(language="en")
 
         # Create the voice pipeline
         pipeline = VoicePipeline(
             workflow=workflow,
             stt_model=stt_model,
             tts_model=tts_model,
-            config=VoicePipelineConfig(
-                tts_settings=TTSModelSettings(voice="ash"), stt_settings=STTModelSettings(language="en")
-            ),
+            config=VoicePipelineConfig(tts_settings=tts_settings, stt_settings=stt_settings),
         )
 
-        recording_task = None
-        pipeline_task = None
-
-        try:
-            # 1. Play initial TTS prompt "Is everything OK?"
-            output_stream.start()
-
-            # Use TTS model to generate the initial prompt
-            initial_prompt = "   Hey! Is everything OK?"
-            logger.info(f"Playing TTS prompt: '{initial_prompt}'")
-            tts_audio_chunks = []
-            async for chunk in tts_model.run(initial_prompt, TTSModelSettings(voice="alloy")):
-                tts_audio_chunks.append(chunk)
-            tts_audio = b"".join(tts_audio_chunks)
-
-            # Play the audio
-            output_stream.write(np.frombuffer(tts_audio, dtype=np.int16))
-            output_stream.stop()
-
-            logger.info("Played initial prompt, now recording response")
-
-            # 2. Start recording microphone input
-            input_stream.start()
-            recording_task = asyncio.create_task(self.record_audio(input_stream, audio_input))
-
-            # 3. Process the audio through the pipeline
-            pipeline_task = asyncio.create_task(pipeline.run(audio_input))
-
-            # Wait for the recording to complete
+        while self.iteration < self.MAX_ITERATIONS:
+            output_stream = sd.OutputStream(samplerate=self.SAMPLE_RATE, channels=self.CHANNELS, dtype=self.FORMAT)
+            input_stream = sd.InputStream(samplerate=self.SAMPLE_RATE, channels=self.CHANNELS, dtype=self.FORMAT)
+            recording_task = None
+            pipeline_task = None
             try:
-                await asyncio.wait_for(recording_task, timeout=self.RECORDING_TIMEOUT)
-            except TimeoutError:
-                logger.warning("Recording timed out after maximum duration")
+                # 1. Play initial TTS prompt "Is everything OK?"
+                output_stream.start()
+
+                # Use TTS model to generate the initial prompt
+                prompt = workflow.get_audio_prompt(self.iteration)
+                logger.info(f"Playing TTS prompt: '{prompt}'")
+                tts_audio_chunks = []
+                async for chunk in tts_model.run(prompt, tts_settings):
+                    tts_audio_chunks.append(chunk)
+                tts_audio = b"".join(tts_audio_chunks)
+
+                # Play the audio
+                output_stream.write(np.frombuffer(tts_audio, dtype=np.int16))
+                output_stream.stop()
+
+                logger.info(f"Played '{prompt}', now recording response")
+
+                # 2. Start recording microphone input
+                input_stream.start()
+                recording_task = asyncio.create_task(self.record_audio(input_stream, audio_input))
+
+                # 3. Process the audio through the pipeline
+                pipeline_task = asyncio.create_task(pipeline.run(audio_input))
+
+                # Wait for the recording to complete
+                try:
+                    await asyncio.wait_for(recording_task, timeout=self.RECORDING_TIMEOUT)
+                except TimeoutError:
+                    logger.warning("Recording timed out after maximum duration")
+                    if recording_task and not recording_task.done():
+                        recording_task.cancel()
+                        try:
+                            await recording_task
+                        except asyncio.CancelledError:
+                            logger.info("Recording task cancelled successfully")
+
+                # Process the pipeline result
+                logger.info("Recording complete. Processing through STT...")
+                _ = await pipeline_task
+
+            except Exception:
+                logger.exception("Error in health inquiry voice interaction")
+
+            finally:
+                # Cancel any running tasks
                 if recording_task and not recording_task.done():
                     recording_task.cancel()
-                    try:
-                        await recording_task
-                    except asyncio.CancelledError:
-                        logger.info("Recording task cancelled successfully")
 
-            # Process the pipeline result
-            logger.info("Recording complete. Processing through STT...")
-            _ = await pipeline_task
+                if pipeline_task and not pipeline_task.done():
+                    pipeline_task.cancel()
 
-        except Exception:
-            logger.exception("Error in health inquiry voice interaction")
+                # Clean up resources
+                if hasattr(output_stream, "active") and output_stream.active:
+                    output_stream.stop()
+                output_stream.close()
 
-        finally:
-            # Cancel any running tasks
-            if recording_task and not recording_task.done():
-                recording_task.cancel()
+                if hasattr(input_stream, "active") and input_stream.active:
+                    input_stream.stop()
+                input_stream.close()
 
-            if pipeline_task and not pipeline_task.done():
-                pipeline_task.cancel()
+            # Only break if user needs immediate help or is fine
+            if workflow.final_output != workflow.health_status_not_ok:
+                logger.info("User is fine, breaking!")
+                break
 
-            # Clean up resources
-            if hasattr(output_stream, "active") and output_stream.active:
-                output_stream.stop()
-            output_stream.close()
-
-            if hasattr(input_stream, "active") and input_stream.active:
-                input_stream.stop()
-            input_stream.close()
+            self.iteration += 1
 
         return workflow.final_output
 
