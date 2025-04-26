@@ -1,8 +1,8 @@
 """Example usage of ADBPhoneCallManager for making and managing phone calls."""
 
+import asyncio
 import base64
 import logging
-import asyncio
 import time
 from pathlib import Path
 
@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 async def emergency_call_tool(imageBase64: str) -> bool:
-    """Process an emergency call with image analysis and audio notification.
+    """
+    Process an emergency call with image analysis and audio notification.
 
     Args:
         imageBase64: Base64 encoded image string
@@ -55,7 +56,7 @@ async def emergency_call_tool(imageBase64: str) -> bool:
                 logger.error("Failed to process emergency call")
 
             return success
-        except ValueError as e:
+        except ValueError:
             logger.error("No Android device found. Please connect a device and try again.")
             return False
 
@@ -68,7 +69,7 @@ class EmergencyCallHelper:
     def __init__(self):
         try:
             self.phone_manager = ADBPhoneCallManager()
-        except ValueError as e:
+        except ValueError:
             logger.error("No Android device found. Please connect a device and try again.")
             raise
 
@@ -102,8 +103,7 @@ class EmergencyCallHelper:
                     if phone_manager.end_call():
                         logger.info("Call ended successfully")
                         return True
-                    else:
-                        logger.warning("Failed to end call")
+                    logger.warning("Failed to end call")
                 else:
                     phone_manager.end_call()
                     logger.warning("Call did not become active within timeout period")
@@ -112,10 +112,10 @@ class EmergencyCallHelper:
 
             return False
 
-        except RuntimeError as e:
+        except RuntimeError:
             logger.error("Runtime error occurred during call")
             return False
-        except Exception as e:
+        except Exception:
             logger.error("Unexpected error occurred during call")
             return False
 

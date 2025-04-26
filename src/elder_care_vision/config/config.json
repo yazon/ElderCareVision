@@ -1,9 +1,5 @@
 {
     "agent": {
-        "coordinator": {
-            "model": "gpt-4.1",
-            "temperature": 0.7
-        },
         "health_status_inquiry": {
             "model": "gpt-4.1",
             "temperature": 0.7
@@ -25,7 +21,7 @@
         }
     },
     "emergency_call": {
-	    "phone_number": "123456789",
-	    "relationship":"grandson"
+        "phone_number": "123456789",
+        "relationship":"grandson"
     }
 }

@@ -45,7 +45,6 @@ class BaseAgent(ABC):  # noqa: B024
             instructions=self.get_prompt(),
             output_type=output_type,
         )
-        logger.info(f"Agent '{self.agent_name}' initialized successfully.")
 
     def get_agent(self) -> Agent:
         """Returns the underlying agent instance."""

@@ -1,4 +1,5 @@
-"""The grand conductor of your fall detection drama! 🎭
+"""
+The grand conductor of your fall detection drama! 🎭
 
 This is the oopsie-controller - the mastermind behind your fall detection ecosystem.
 It orchestrates the overly-sensitive detector (oopsie_alert) and the sensible filter (oopsie_nanny)
@@ -12,8 +13,8 @@ Components:
 Why "oopsie"? Because sometimes life happens, and we're here to catch those moments! 🎪
 """
 
-from .oopsie_controller import OopsieController
 from .oopsie_alert import FallDetector
+from .oopsie_controller import OopsieController
 from .oopsie_nanny import ImageRecognizer
 
-__all__ = ["OopsieController", "FallDetector", "ImageRecognizer"] 
+__all__ = ["FallDetector", "ImageRecognizer", "OopsieController"]

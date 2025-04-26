@@ -352,7 +352,8 @@ class OpenAIService:
         raise OpenAIChatCompletionError(str(error)) from error
 
     async def text_to_speech(self, text: str, voice: str = "alloy", output_format: str = "mp3") -> bytes:
-        """Convert text to speech using OpenAI's TTS API.
+        """
+        Convert text to speech using OpenAI's TTS API.
 
         Args:
             text: The text to convert to speech
@@ -371,4 +372,4 @@ class OpenAIService:
             )
             return response.content
         except Exception as e:
-            raise OpenAIChatCompletionError(f"Failed to convert text to speech: {str(e)}") from e
+            raise OpenAIChatCompletionError(f"Failed to convert text to speech: {e!s}") from e

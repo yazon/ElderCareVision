@@ -38,7 +38,6 @@ class HealthStatusInquiryAgent:
 
         # Initialize streams
         output_stream = sd.OutputStream(samplerate=self.SAMPLE_RATE, channels=self.CHANNELS, dtype=self.FORMAT)
-
         input_stream = sd.InputStream(samplerate=self.SAMPLE_RATE, channels=self.CHANNELS, dtype=self.FORMAT)
 
         # Set up OpenAI STT and TTS models

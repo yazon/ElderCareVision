@@ -1,8 +1,8 @@
 """Module for handling ADB calls and call status monitoring."""
 
+import io
 import logging
 import time
-import io
 from enum import Enum
 
 import sounddevice as sd
@@ -107,7 +107,8 @@ class ADBPhoneCallManager:
         return False
 
     def play_audio(self, audio_data: bytes) -> bool:
-        """Play audio on the computer using sounddevice and soundfile.
+        """
+        Play audio on the computer using sounddevice and soundfile.
 
         Args:
             audio_data: The audio data in bytes format (e.g., MP3, WAV)
