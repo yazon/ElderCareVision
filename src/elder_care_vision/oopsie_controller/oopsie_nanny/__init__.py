@@ -1,4 +1,5 @@
-"""The sensible nanny that brings sanity to the system! 👶
+"""
+The sensible nanny that brings sanity to the system! 👶
 
 Introducing oopsie_nanny - the rational layer of our fall detection system.
 Like a wise caregiver, it carefully evaluates each alert from oopsie_alert,
@@ -15,4 +16,4 @@ Because sometimes, not every stumble is a crisis! 🧠
 
 from .oopsie_nanny import ImageRecognizer
 
-__all__ = ["ImageRecognizer"] 
+__all__ = ["ImageRecognizer"]

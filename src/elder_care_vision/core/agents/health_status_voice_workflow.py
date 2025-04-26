@@ -33,22 +33,61 @@ class HealthStatusVoiceWorkflow(VoiceWorkflowBase):
 
     <rules>
     - Always be compassionate and considerate.
+    - Always assume that user should respond in English.
     - Focus only on analyzing the user's response for any signs of confusion, or calls for help.
-    - If the user is confused or needs help, respond with "{health_status_needs_help}".
+    - If the user needs help, respond with "{health_status_needs_help}".
     - If the user is OK, respond with "{health_status_ok}".
-    - If the user is unsure or the response cannot be determined, respond with "{health_status_not_ok}".
+    - If the user is response cannot be determined or is not clear, respond with "{health_status_not_ok}".
     </rules>
+
+    <examples>
+    Example 1:
+    - Assistant: "Is everything OK?"
+    - User: "I'm not feeling well."
+    - Assistant: "{health_status_needs_help}" (because the user is not feeling well)
+
+    Example 2:
+    - Assistant: "Is everything OK?"
+    - User: "Yeah, I'm fine."
+    - Assistant: "{health_status_ok}" (because the user is fine)
+
+    Example 3:
+    - Assistant: "Is everything OK?"
+    - User: "I'm not sure."
+    - Assistant: "{health_status_not_ok}" (because the user is not sure)
+
+    Example 4:
+    - Assistant: "Is everything OK?"
+    - User: "جیسے میں کہوں."
+    - Assistant: "{health_status_not_ok}" (because transcription is not in English)
+
+    Example 5:
+    - Assistant: "Is everything OK?"
+    - User: "Nie wiem, por favor!"
+    - Assistant: "{health_status_not_ok}" (because transcription is not in English)
+
+    Example 6:
+    - Assistant: "Is everything OK?"
+    - User: ""
+    - Assistant: "{health_status_not_ok}" (because there is no transcription - silence)
+    </examples>
     """
 
     def __init__(self) -> None:
         """Initialize the health status voice workflow."""
         self.config = load_config()
         self.model = self.config["agent"]["health_status_inquiry"]["model"]
-        self.health_status_ok = self.config["agent"]["person_state_analyzer"]["health_status_ok"]
-        self.health_status_not_ok = self.config["agent"]["person_state_analyzer"]["health_status_not_ok"]
-        self.health_status_needs_help = self.config["agent"]["person_state_analyzer"]["health_status_needs_help"]
+        self.health_status_ok = self.config["agent"]["health_status_inquiry"]["health_status_ok"]
+        self.health_status_not_ok = self.config["agent"]["health_status_inquiry"]["health_status_not_ok"]
+        self.health_status_needs_help = self.config["agent"]["health_status_inquiry"]["health_status_needs_help"]
+        self.initial_ask_prompt = self.config["agent"]["health_status_inquiry"]["initial_ask_prompt"]
+        self.retry_ask_prompt = self.config["agent"]["health_status_inquiry"]["retry_ask_prompt"]
         self.final_output: str = ""
-        # Create a simple agent for analysis
+        self.tts_model = self.config["agent"]["health_status_inquiry"]["tts_model"]
+        self.stt_model = self.config["agent"]["health_status_inquiry"]["stt_model"]
+        self.tts_settings = self.config["agent"]["health_status_inquiry"]["tts_settings"]
+        self.stt_settings = self.config["agent"]["health_status_inquiry"]["stt_settings"]
+        # Create agent for user message analysis
         self.agent = Agent(
             name="Health Status Inquiry Agent",
             instructions=self.get_prompt(),
@@ -66,6 +105,11 @@ class HealthStatusVoiceWorkflow(VoiceWorkflowBase):
             health_status_not_ok=self.health_status_not_ok,
             health_status_needs_help=self.health_status_needs_help,
         )
+
+    def get_audio_prompt(self, iteration: int) -> str:
+        if iteration > 0:
+            return self.retry_ask_prompt
+        return self.initial_ask_prompt
 
     async def run(self, transcription: str) -> AsyncIterator[str]:
         """

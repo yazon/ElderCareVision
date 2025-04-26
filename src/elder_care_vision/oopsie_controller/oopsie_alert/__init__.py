@@ -1,4 +1,5 @@
-"""The alarm-happy detector that thinks every movement is a crisis! 🚨
+"""
+The alarm-happy detector that thinks every movement is a crisis! 🚨
 
 Meet oopsie_alert - the overly sensitive component of our fall detection system.
 Like an excitable toddler, it triggers on every sneeze, shift, or breeze.
@@ -16,4 +17,4 @@ Remember: It's better to be safe than sorry! 🛡️
 
 from .oopsie_alert import FallDetector
 
-__all__ = ["FallDetector"] 
+__all__ = ["FallDetector"]

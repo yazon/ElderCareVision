@@ -1,9 +1,8 @@
+import asyncio
 import base64
 import logging
-import time
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from pathlib import Path
 
 from agents import Runner
 
@@ -11,7 +10,7 @@ from elder_care_vision.core.agents.health_status_inquiry import HealthStatusInqu
 from elder_care_vision.core.agents.person_state_analyzer import PersonStateAnalyzerAgent
 from elder_care_vision.core.tools.emergency_call.emergency_call import emergency_call_tool
 from elder_care_vision.core.tools.fall_camera_detector import fall_camera_detector_tool
-from elder_care_vision.utils.utils import load_config, get_static_path
+from elder_care_vision.utils.utils import get_static_path, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +46,8 @@ class Coordinator:
         self.confidence_threshold_1 = self.config["agent"]["person_state_analyzer"]["confidence_threshold_1"]
         self.confidence_threshold_2 = self.config["agent"]["person_state_analyzer"]["confidence_threshold_2"]
         self.emergency_statuses = (
-            self.config["agent"]["person_state_analyzer"]["health_status_needs_help"],
-            self.config["agent"]["person_state_analyzer"]["health_status_not_ok"],
+            self.config["agent"]["health_status_inquiry"]["health_status_needs_help"],
+            self.config["agent"]["health_status_inquiry"]["health_status_not_ok"],
         )
         self.context = CoordinatorContext()  # Initialize context
         print(f"Initializing state machine in state: {self.context.current_state.name}")
@@ -95,7 +94,7 @@ class Coordinator:
 
     async def process_start_state(self) -> None:
         """Processes the start state."""
-        logger.info("Processing start state")
+        logger.info("---- BEGINNING OF START STATE ----")
         # Store image data in context
         self.context.image_data = await self.fall_camera_detector_tool()
         logger.info(f"Image data: {self.context.image_data}")
@@ -103,7 +102,7 @@ class Coordinator:
 
     async def process_analyzing_image_state(self) -> None:
         """Processes the analyzing image state."""
-        logger.info("Processing analyzing image state")
+        logger.info("---- BEGINNING OF ANALYZING IMAGE STATE ----")
         if self.context.image_data is None:
             logger.error("No image data available to analyze. Returning to START state.")
             self.transition_to_state(CoordinatorState.START)
@@ -124,7 +123,7 @@ class Coordinator:
 
     async def process_inquiring_health_state(self) -> None:
         """Processes the inquiring health state."""
-        logger.info("Processing inquiring health state")
+        logger.info("---- BEGINNING OF INQUIRING HEALTH STATE ----")
         # Use the health_status_inquiry_agent and context data
         hsa = HealthStatusInquiryAgent()
         self.context.health_status = await hsa.run_agent()
@@ -136,8 +135,8 @@ class Coordinator:
 
     async def process_calling_emergency_state(self) -> None:
         """Processes the calling emergency state."""
-        logger.info("Processing calling emergency state")
+        logger.info("---- BEGINNING OF CALLING EMERGENCY STATE ----")
         # TODO: make it in a thread
         await self.emergency_call_tool(self.context.image_base64)
-        time.sleep(10)
+        await asyncio.sleep(10)
         self.transition_to_state(CoordinatorState.START)

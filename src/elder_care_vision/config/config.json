@@ -1,21 +1,26 @@
 {
     "agent": {
-        "coordinator": {
-            "model": "gpt-4.1",
-            "temperature": 0.7
-        },
         "health_status_inquiry": {
             "model": "gpt-4.1",
-            "temperature": 0.7
+            "tts_model": "gpt-4o-mini-tts",
+            "stt_model": "gpt-4o-mini-transcribe",
+            "tts_settings": {
+                "voice": "ash"
+            },
+            "stt_settings": {
+                "language": "en"
+            },
+            "health_status_ok": "ok",
+            "health_status_not_ok": "not_ok",
+            "health_status_needs_help": "needs_help",
+            "initial_ask_prompt": "Hey! Is everything OK?",
+            "retry_ask_prompt": "Sorry, I didn't catch that. Is everything OK?"
         },
         "person_state_analyzer": {
             "model": "gpt-4.1",
             "temperature": 0.7,
             "confidence_threshold_1": 80,
-            "confidence_threshold_2": 50,
-            "health_status_ok": "ok",
-            "health_status_not_ok": "not_ok",
-            "health_status_needs_help": "needs_help"
+            "confidence_threshold_2": 50
         }
     },
     "tool": {
@@ -25,7 +30,7 @@
         }
     },
     "emergency_call": {
-	    "phone_number": "123456789",
-	    "relationship":"grandson"
+        "phone_number": "123456789",
+        "relationship":"grandson"
     }
 }
