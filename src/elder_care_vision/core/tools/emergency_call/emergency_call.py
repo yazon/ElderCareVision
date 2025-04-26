@@ -1,8 +1,8 @@
 """Example usage of ADBPhoneCallManager for making and managing phone calls."""
 
-import asyncio
 import base64
 import logging
+import asyncio
 import time
 from pathlib import Path
 
@@ -18,9 +18,8 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def emergency_call_tool(fall_detection_result: FallDetectionResult) -> bool:
-    """
-    Process an emergency call with image analysis and audio notification.
+async def emergency_call_tool(imageBase64: str, story: str = "") -> bool:
+    """Process an emergency call with image analysis and audio notification.
 
     Args:
         imageBase64: Base64 encoded image string
@@ -32,34 +31,41 @@ async def emergency_call_tool(fall_detection_result: FallDetectionResult) -> boo
         # Get config
         config = load_config()["emergency_call"]
 
-        # Analyze the image
-        img_analizer = ImgAnalizer()
-        text = await img_analizer.analize_image(imageBase64, config["relationship"])
-        if not text:
-            logger.error("Failed to analyze image")
-            return False
+        for contact in config["contacts"]:
+            # Analyze the image
+            img_analizer = ImgAnalizer()
+            text = await img_analizer.analize_image(imageBase64, contact["relationship"], story)
+            if not text:
+                logger.error("Failed to analyze image")
+                continue
 
-        # Convert text to speech
-        openai_service = OpenAIService()
-        audio_data = await openai_service.text_to_speech(text)
-        if not audio_data:
-            logger.error("Failed to convert text to speech")
-            return False
-
-        # Make the emergency call
-        try:
+            # Send SMS
             caller = EmergencyCallHelper()
-            success = caller.make_call(config["phone_number"], audio_data)
+            success = caller.send_sms(contact["phone_number"], text)
+            if not success:
+                logger.error("Failed to send SMS")
 
-            if success:
-                logger.info("Emergency call processed successfully")
-            else:
-                logger.error("Failed to process emergency call")
+            # Convert text to speech
+            openai_service = OpenAIService()
+            audio_data = await openai_service.text_to_speech(text)
+            if not audio_data:
+                logger.error("Failed to convert text to speech")
+                continue
 
-            return success
-        except ValueError:
-            logger.error("No Android device found. Please connect a device and try again.")
-            return False
+            # Make the emergency call
+            try:
+                success = caller.make_call(contact["phone_number"], audio_data)
+                if success:
+                    logger.info("Emergency call processed successfully")
+                    return True
+                else:
+                    logger.error("Failed to process emergency call")
+                    continue
+            except Exception as e:
+                logger.error("Error in emergency call processing: %s", str(e))
+                continue
+
+        return False
 
     except Exception as e:
         logger.error("Error in emergency call processing: %s", str(e))
@@ -70,7 +76,7 @@ class EmergencyCallHelper:
     def __init__(self):
         try:
             self.phone_manager = ADBPhoneCallManager()
-        except ValueError:
+        except ValueError as e:
             logger.error("No Android device found. Please connect a device and try again.")
             raise
 
@@ -104,7 +110,8 @@ class EmergencyCallHelper:
                     if phone_manager.end_call():
                         logger.info("Call ended successfully")
                         return True
-                    logger.warning("Failed to end call")
+                    else:
+                        logger.warning("Failed to end call")
                 else:
                     phone_manager.end_call()
                     logger.warning("Call did not become active within timeout period")
@@ -113,12 +120,18 @@ class EmergencyCallHelper:
 
             return False
 
-        except RuntimeError:
+        except RuntimeError as e:
             logger.error("Runtime error occurred during call")
             return False
-        except Exception:
+        except Exception as e:
             logger.error("Unexpected error occurred during call")
             return False
+
+    def send_sms(self, phone_number: str, message: str) -> bool:
+        if self.phone_manager is None:
+            logger.error("No phone manager available to send SMS")
+            return False
+        return self.phone_manager.send_sms(phone_number, message)
 
 
 if __name__ == "__main__":
