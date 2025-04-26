@@ -2,6 +2,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from typing import Union
 
 from elder_care_vision.core.agents.health_status_inquiry import HealthStatusInquiryAgent
 from elder_care_vision.core.agents.person_state_analyzer import PersonStateAnalyzerAgent
@@ -55,11 +56,15 @@ class Coordinator:
         emergency_call_tool (callable): Tool function to make emergency calls.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, video_source: Union[int, str] = 0) -> None:
         """
         Initializes the Coordinator.
 
         Loads configuration, sets thresholds, initializes context, and instantiates agents/tools.
+
+        Args:
+            video_source: Either a camera ID (integer) or an RTSP stream URL (string).
+                         Defaults to 0 (default camera).
         """
         logger.info("Initializing Coordinator State Machine")
         self.config = load_config()
@@ -71,7 +76,7 @@ class Coordinator:
         )
         self.context = CoordinatorContext()  # Initialize context
         print(f"Initializing state machine in state: {self.context.current_state.name}")
-        self.person_state_analyzer_agent = PersonStateAnalyzerAgent()
+        self.person_state_analyzer_agent = PersonStateAnalyzerAgent(video_source)
         self.health_status_inquiry_agent = HealthStatusInquiryAgent()
         self.emergency_call_tool = emergency_call_tool
 
@@ -142,20 +147,32 @@ class Coordinator:
         or stays in ANALYZING_IMAGE for low confidence.
         """
         confidence_level = self.person_state_analyzer_agent.fall_detection_result.confidence_level
-        logger.info(f"PSA confidence: {confidence_level}")
-        # We do not need to check the status so often, so we sleep for 1 second
-        await asyncio.sleep(1)
+        self.person_state_analyzer_agent.fall_detection_result.confidence_level = (
+            -1
+        )  # set to negative value to indicate that the value was read
+        logger.info(f"PSA confidence: {confidence_level} (previous: {self.context.last_psa_confidence})")
+        await asyncio.sleep(0.5)
         if confidence_level != self.context.last_psa_confidence:
+            logger.info(f"Confidence level changed from {self.context.last_psa_confidence} to {confidence_level}")
             self.context.last_psa_confidence = confidence_level
             # Store the fall detection result to context for emergency call
             self.context.fall_detection_result = self.person_state_analyzer_agent.fall_detection_result
 
             # Transition based on PSA confidence
             if confidence_level > self.confidence_threshold_1:
+                logger.info(
+                    f"High confidence ({confidence_level} > {self.confidence_threshold_1}), transitioning to CALLING_EMERGENCY"
+                )
                 self.transition_to_state(CoordinatorState.CALLING_EMERGENCY)
             elif confidence_level >= self.confidence_threshold_2:
+                logger.info(
+                    f"Medium confidence ({confidence_level} >= {self.confidence_threshold_2}), transitioning to INQUIRING_HEALTH"
+                )
                 self.transition_to_state(CoordinatorState.INQUIRING_HEALTH)
             else:
+                logger.info(
+                    f"Low confidence ({confidence_level} < {self.confidence_threshold_2}), staying in ANALYZING_IMAGE"
+                )
                 self.transition_to_state(CoordinatorState.ANALYZING_IMAGE)
 
     async def process_inquiring_health_state(self) -> None:

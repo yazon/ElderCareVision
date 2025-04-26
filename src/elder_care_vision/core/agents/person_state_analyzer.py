@@ -5,6 +5,8 @@ import base64
 import logging
 import threading
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Union
 
 import cv2
 import numpy as np
@@ -30,18 +32,16 @@ class PersonStateAnalyzerAgent:
         controller: Main processing controller instance
     """
 
-    def __init__(self, camera_id: int = 0) -> None:
+    def __init__(self, video_source: Union[int, str] = 0) -> None:
         """
-        Initialize analyzer agent with camera and event handlers.
+        Initializes the Person State Analyzer agent.
 
         Args:
-            camera_id: Numeric identifier for video capture device. Defaults to 0.
-
-        Raises:
-            RuntimeError: If camera initialization fails
+            video_source: Either a camera ID (integer) or an RTSP stream URL (string).
+                         Defaults to 0 (default camera).
         """
         logger.info("Initializing Person State Analyzer Agent")
-        self.camera_id = camera_id
+        self.video_source = video_source
         self.fall_detection_result = FallDetectionResult()
         # Create output directory
         self.output_path = get_static_path()
@@ -78,8 +78,11 @@ class PersonStateAnalyzerAgent:
                 confidence_level: Final confidence score (0-100)
             """
             logger.info(f"LLM confirmed fall {analysis} with confidence level {confidence_level}")
-            self.fall_detection_result.confidence_level = confidence_level
+            logger.info(
+                f"Updating fall_detection_result confidence from {self.fall_detection_result.confidence_level} to {confidence_level}"
+            )
             self.fall_detection_result.analysis = analysis
+            self.fall_detection_result.confidence_level = confidence_level
             # Encode last frame
             _, buffer = cv2.imencode(".jpg", frame_sequence[-1])
             self.fall_detection_result.fall_image = base64.b64encode(buffer).decode("utf-8")
@@ -107,11 +110,11 @@ class PersonStateAnalyzerAgent:
         debug_overlay = True
         frame_count = 0
 
-        # Initialize camera
-        logger.info(f"Opening camera {self.camera_id}")
-        self.cap = cv2.VideoCapture(self.camera_id)
+        # Initialize video source
+        logger.info(f"Opening video source: {self.video_source}")
+        self.cap = cv2.VideoCapture(self.video_source)
         if not self.cap.isOpened():
-            msg = f"Failed to open camera {self.camera_id}"
+            msg = f"Failed to open video source: {self.video_source}"
             logger.error(msg)
             raise RuntimeError(msg)
 
