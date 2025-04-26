@@ -1,6 +1,6 @@
+import asyncio
 import base64
 import logging
-import time
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
@@ -46,8 +46,8 @@ class Coordinator:
         self.confidence_threshold_1 = self.config["agent"]["person_state_analyzer"]["confidence_threshold_1"]
         self.confidence_threshold_2 = self.config["agent"]["person_state_analyzer"]["confidence_threshold_2"]
         self.emergency_statuses = (
-            self.config["agent"]["person_state_analyzer"]["health_status_needs_help"],
-            self.config["agent"]["person_state_analyzer"]["health_status_not_ok"],
+            self.config["agent"]["health_status_inquiry"]["health_status_needs_help"],
+            self.config["agent"]["health_status_inquiry"]["health_status_not_ok"],
         )
         self.context = CoordinatorContext()  # Initialize context
         print(f"Initializing state machine in state: {self.context.current_state.name}")
@@ -138,5 +138,5 @@ class Coordinator:
         logger.info("---- BEGINNING OF CALLING EMERGENCY STATE ----")
         # TODO: make it in a thread
         await self.emergency_call_tool(self.context.image_base64)
-        time.sleep(10)
+        await asyncio.sleep(10)
         self.transition_to_state(CoordinatorState.START)

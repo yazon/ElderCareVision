@@ -57,7 +57,9 @@ line-length = 120
 target-version = "py312"
 src = ["src"]
 extend-exclude = [".venv", "venv", "build", "dist"]
+lint.flake8-implicit-str-concat.allow-multiline = true  # disables ISC002
 lint.ignore = [
+    "ISC001",  #
     "COM812",  # Clashes with ruff formatter
     "BLE001",  # Allow blind Exception catch
     "G004",    # Allows using f-strings in logging statements

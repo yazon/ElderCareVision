@@ -77,13 +77,17 @@ class HealthStatusVoiceWorkflow(VoiceWorkflowBase):
         """Initialize the health status voice workflow."""
         self.config = load_config()
         self.model = self.config["agent"]["health_status_inquiry"]["model"]
-        self.health_status_ok = self.config["agent"]["person_state_analyzer"]["health_status_ok"]
-        self.health_status_not_ok = self.config["agent"]["person_state_analyzer"]["health_status_not_ok"]
-        self.health_status_needs_help = self.config["agent"]["person_state_analyzer"]["health_status_needs_help"]
-        self.initial_ask_prompt = self.config["agent"]["person_state_analyzer"]["initial_ask_prompt"]
-        self.retry_ask_prompt = self.config["agent"]["person_state_analyzer"]["retry_ask_prompt"]
+        self.health_status_ok = self.config["agent"]["health_status_inquiry"]["health_status_ok"]
+        self.health_status_not_ok = self.config["agent"]["health_status_inquiry"]["health_status_not_ok"]
+        self.health_status_needs_help = self.config["agent"]["health_status_inquiry"]["health_status_needs_help"]
+        self.initial_ask_prompt = self.config["agent"]["health_status_inquiry"]["initial_ask_prompt"]
+        self.retry_ask_prompt = self.config["agent"]["health_status_inquiry"]["retry_ask_prompt"]
         self.final_output: str = ""
-        # Create a simple agent for analysis
+        self.tts_model = self.config["agent"]["health_status_inquiry"]["tts_model"]
+        self.stt_model = self.config["agent"]["health_status_inquiry"]["stt_model"]
+        self.tts_settings = self.config["agent"]["health_status_inquiry"]["tts_settings"]
+        self.stt_settings = self.config["agent"]["health_status_inquiry"]["stt_settings"]
+        # Create agent for user message analysis
         self.agent = Agent(
             name="Health Status Inquiry Agent",
             instructions=self.get_prompt(),
