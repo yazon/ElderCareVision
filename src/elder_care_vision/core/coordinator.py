@@ -147,6 +147,9 @@ class Coordinator:
         or stays in ANALYZING_IMAGE for low confidence.
         """
         confidence_level = self.person_state_analyzer_agent.fall_detection_result.confidence_level
+        self.person_state_analyzer_agent.fall_detection_result.confidence_level = (
+            -1
+        )  # set to negative value to indicate that the value was read
         logger.info(f"PSA confidence: {confidence_level} (previous: {self.context.last_psa_confidence})")
         await asyncio.sleep(0.5)
         if confidence_level != self.context.last_psa_confidence:
